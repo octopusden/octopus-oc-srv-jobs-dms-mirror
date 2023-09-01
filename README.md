@@ -11,6 +11,7 @@ Way to provide is `--config-file` parameter in the command line. *Default*: `con
 ```
   "some": {
     "ci_type": "SOMEDSTR",
+    "enabled": true,
     "tgtGavTemplate": { 
       "notes": "com.example.some\\$n\\$cl:\\$v:txt",
       "distribution": "com.example.some:\\$n\\$cl:\\$v:zip"

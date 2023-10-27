@@ -187,9 +187,9 @@ class DmsMirror(object):
             # we have to raise an exception if "id" is not present - it is a crime!
             _info = self.dms_client.get_artifact_info(component, version, artifact["id"])
             _result.update({
-                "n": _result.get("n") or _info.get("artifactId") or "",
-                "p": _result.get("p") or _info.get("packaging") or "",
-                "c": _result.get("c") or _info.get("classifier") or ""})
+                "n": _result.get("n") or _info.get("gav", dict()).get("artifactId") or "",
+                "p": _result.get("p") or _info.get("gav", dict()).get("packaging") or "",
+                "c": _result.get("c") or _info.get("gav", dict()).get("classifier") or ""})
 
         if any(list(map(lambda _x: not _result.get(_x), ["n", "p"]))):
             logging.log(5, self.__log_msg(

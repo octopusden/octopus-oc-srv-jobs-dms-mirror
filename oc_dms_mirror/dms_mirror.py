@@ -163,9 +163,11 @@ class DmsMirror(object):
 
         return None
 
-    def _make_gav_substitute(self, artifact, version):
+    def _make_gav_substitute(self, component, version, artifact):
         """
         Return a dictionary for GAV substitutes
+        :param str component:
+        :param str version:
         :param dict artifact: artifact params from DMS
         :return dict:
         """
@@ -176,6 +178,18 @@ class DmsMirror(object):
                 "p": artifact.get("packaging") or "", # not returned by v3
                 "c": artifact.get("classifier") or "", # not returned by v3
                 "prefix": self._args.mvn_prefix}
+
+        # try to update missing components using DMS API v3 detailed call
+        if any(list(map(lambda _x: not _result.get(_x), ["n", "p"]))) and hasattr(self.dms_client, "get_artifact_info"):
+            logging.log(5, self.__log_msg(
+                "Try to update missing components using DMS API v3 detailed call"))
+
+            # we have to raise an exception if "id" is not present - it is a crime!
+            _info = self.dms_client.get_artifact_info(component, version, artifact["id"])
+            _result.update({
+                "n": _result.get("n") or _info.get("artifactId") or "",
+                "p": _result.get("p") or _info.get("packaging") or "",
+                "c": _result.get("c") or _info.get("classifier") or ""})
 
         if any(list(map(lambda _x: not _result.get(_x), ["n", "p"]))):
             logging.log(5, self.__log_msg(
@@ -191,7 +205,10 @@ class DmsMirror(object):
 
             _n = re.sub("^[\-_\.\s]+", "", _n.pop(0))
             _n = re.sub("[\-_\.\s]+$", "", _n)
-            _result.update({"n": _n, "p": _p, "c": _c})
+            _result.update({
+                "n": _result.get("n") or _n,
+                "p": _result.get("p") or _p,
+                "c": _result.get("c") or _c})
 
         _result["cl"] = _result["c"]
         _result["c_hyphen"] = f"-{_result['c']}" if _result["c"] else ""
@@ -229,7 +246,7 @@ class DmsMirror(object):
 
         _gav_template = _gav_template.replace("\\", "")
         logging.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
-        _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(artifact, version))
+        _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
         _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
         logging.info(self.__log_msg(f"Target GAV: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
         

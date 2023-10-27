@@ -172,7 +172,8 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
                             self.dmsmirror._get_static_ci_type(_artifact_type) or _params["ci_type"],
                             _artifact_type)
 
-    def _process_artifact_asserts(self, component, version, artifact, artifact_type, ci_type, substitutes):
+    def _process_artifact_asserts(self, component, version, artifact, artifact_type, 
+                                  ci_type, substitutes, artifact_info=dict()):
         _tgt_gav = self.dmsmirror._components[component]["tgtGavTemplate"][artifact_type].replace("\\", "")
         _tgt_gav = Template(_tgt_gav).substitute(substitutes)
         _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
@@ -181,20 +182,34 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock(return_value=False)
         self.dmsmirror._copy_artifact = unittest.mock.MagicMock(return_value=None)
         self.dmsmirror._register_artifact = unittest.mock.MagicMock(return_value=None)
+
+        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
+            self.dmsmirror._dms_client.get_artifact_info = unittest.mock.MagicMock(return_value=artifact_info)
+
         self.assertIsNone(self.dmsmirror.process_artifact(artifact, component, version))
         self.dmsmirror._mvn_client.exists.assert_called_once_with(_tgt_gav, repo=self.args.mvn_download_repo)
         self.dmsmirror._register_artifact.assert_called_once_with(_tgt_gav, ci_type)
         self.dmsmirror._copy_artifact.assert_called_once_with(component, version, artifact, _tgt_gav)
+
+        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
+            self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
 
         # now case when target artifact exists
         self.dmsmirror._mvn_client.exists.reset_mock()
         self.dmsmirror._mvn_client.exists.return_value = True
         self.dmsmirror._copy_artifact.reset_mock()
         self.dmsmirror._register_artifact.reset_mock()
+
+        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
+            self.dmsmirror._dms_client.get_artifact_info.reset_mock()
+
         self.assertIsNone(self.dmsmirror.process_artifact(artifact, component, version))
         self.dmsmirror._mvn_client.exists.assert_called_once_with(_tgt_gav, repo=self.args.mvn_download_repo)
         self.dmsmirror._register_artifact.assert_not_called()
         self.dmsmirror._copy_artifact.assert_not_called()
+
+        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
+            self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
 
     def test_artifact_classifier_with_colon(self):
         self.assertEqual(self.args.dms_api_version, 2)
@@ -205,7 +220,8 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         _artifact = {"type": _artifact_type,
                      "name": "a1",
                      "packaging": "pkg",
-                     "classifier": "c1"}
+                     "classifier": "c1",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _artifact.get("name"),
@@ -224,7 +240,8 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         _artifact = {"type": _artifact_type,
                      "name": "a1",
                      "packaging": "pkg",
-                     "classifier": "c1"}
+                     "classifier": "c1",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _artifact.get("name"),
@@ -380,7 +397,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -388,6 +406,21 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "c_colon": f":{_classifier}",
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging,
+                    "classifier": _classifier},
+                "repositoryType":"MAVEN"}
+        # with info
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, 
+                                       _ci_type, _substitutes, _artifact_info)
+        # without info
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_classifier_wo_delimeter(self):
@@ -400,7 +433,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -408,6 +442,19 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "cl": _classifier,
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging,
+                    "classifier": _classifier},
+                "repositoryType":"MAVEN"}
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type,
+                                       _ci_type, _substitutes, _artifact_info)
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_classifier_with_hyphen(self):
@@ -420,7 +467,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}-{_classifier}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -428,6 +476,22 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "c_hyphen": f"-{_classifier}",
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging,
+                    "classifier": _classifier},
+                "repositoryType":"MAVEN"}
+
+        # with info
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type,
+                                       _ci_type, _substitutes, _artifact_info)
+        # without info
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_with_hyphen(self):
@@ -439,7 +503,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -447,6 +512,21 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "c_hyphen": "",
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging},
+                "repositoryType":"MAVEN"}
+
+        # with info
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type,
+                                       _ci_type, _substitutes, _artifact_info)
+        # without info
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_with_colon(self):
@@ -458,7 +538,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -466,6 +547,22 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "c_colon": "",
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging},
+                "repositoryType":"MAVEN"}
+
+        # with info
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type,
+                                       _ci_type, _substitutes, _artifact_info)
+
+        # without info
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_wo_delimiter(self):
@@ -477,7 +574,8 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _packaging = "pkg"
         # should be created with target gav
         _artifact = {"type": _artifact_type,
-                     "fileName": f"{_name}-{_version}.{_packaging}"}
+                     "fileName": f"{_name}-{_version}.{_packaging}",
+                     "id": 1}
         _substitutes = {
                 "at": _artifact_type,
                 "n": _name,
@@ -485,6 +583,21 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
                 "p": _packaging,
                 "cl": "",
                 "prefix": self.args.mvn_prefix}
+        _artifact_info = {
+                "id": _artifact["id"],
+                "type": _artifact_type,
+                "fileName": _artifact["fileName"],
+                "gav": {
+                    "groupId": "com.example.artifact",
+                    "artifactId": _name,
+                    "version": _version,
+                    "packaging": _packaging},
+                "repositoryType":"MAVEN"}
+
+        # with info
+        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type,
+                                       _ci_type, _substitutes, _artifact_info)
+        # without info
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
         
     def test_copy_artifact(self):

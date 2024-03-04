@@ -369,7 +369,7 @@ class DmsMirror(object):
 
         # DMS arguments
         parser.add_argument("--dms-api-version", dest="dms_api_version", type=int,
-                            help="DMS REST API version to use", default=2, choices=[2,3])
+                            help="DMS REST API version to use", default=3, choices=[2,3])
         parser.add_argument("--dms-crs-url", dest="dms_crs_url", type=str,
                             help="DMS Component Registry URL (necessary for DMS API v2)",
                             default=os.getenv("DMS_CRS_URL"))

@@ -80,7 +80,7 @@ class DmsMirrorInitTestSuite(DmsMirrorTestBase):
                 'mvn_password': self.env.get('MVN_PASSWORD'),
                 'mvn_upload_repo': self.env.get('MVN_UPLOAD_REPO'),
                 'mvn_download_repo': self.env.get('MVN_DOWNLOAD_REPO'),
-                'dms_api_version': 2,
+                'dms_api_version': 3,
                 'dms_crs_url': self.env.get('DMS_CRS_URL'),
                 'dms_token': self.env.get('DMS_TOKEN'),
                 'dms_url': self.env.get('DMS_URL'),

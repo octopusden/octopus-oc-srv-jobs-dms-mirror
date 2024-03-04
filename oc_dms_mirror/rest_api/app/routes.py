@@ -35,7 +35,7 @@ def register_component_version_artifact():
     """
     logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}]")
     try:
-        get_dms_mirror().process_version(request.json['component'], request.json['version'])
+        get_dms_mirror().process_version(request.json['version'], request.json['component'])
     except Exception as _e:
         logging.exception(_e)
         return response_json(400, {"result": str(_e)})

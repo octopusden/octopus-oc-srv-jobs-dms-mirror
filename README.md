@@ -40,5 +40,8 @@ All of them may be redefined via command-line keys.
 - `MVN_PREFIX` - Target *MVN GroupID* prefix - if necessary and specified in *JSON* configuration as `\\$prefix`
 
 ## DMS API v3
-API *v2* is used by-default
-Startup parameter `--dms-api-version` is to be set to `3` if *v3* is to be used. `DMS_CRS_URL` is ignored this case.
+API *v3* is used by-default since v.1.6
+API *v2* was the default in v.1.5 and below
+One may set `--dms-api-version` startup parameter to any (`2` or `3`) if necessary.
+
+**NOTE**: if API *v3* is used then `DMS_CRS_URL` is ignored and may be omitted.

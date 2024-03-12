@@ -130,7 +130,11 @@ class DmsMirror:
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
-            logging.error(self.__log_msg(repr(_e)), exc_info=True)
+            # extending exception message to show the subprocess (i.e. component) where it has been raised
+            # necessary to log all exceptions at the end
+            _e.args = (self.__log_msg(""), *_e.args)
+            # NOTE: we do not need here to show process (i.e. component) name once again due to previous line
+            logging.error(repr(_e), exc_info=True)
             return _e
 
         return None
@@ -454,6 +458,15 @@ class DmsMirror:
         logging.info(self.__log_msg(f"Finished. Elapsed time: {__elapsed}"))
 
         if _exceptions:
+            # log ALL exceptions
+            # NOTE: 'labmda' and 'generator' expressions do not work here
+            # because of standard output
+            for _e in _exceptions:
+                # NOTE: we do not need to modify log message here because process name
+                # is inside the exception, see 'process_component' method
+                logging.error(repr(_e))
+
+            # raise first one to return non-zero code
             raise(_exceptions.pop(0))
 
 if __name__ == '__main__':

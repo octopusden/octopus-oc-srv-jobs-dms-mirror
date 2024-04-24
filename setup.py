@@ -2,7 +2,7 @@
 
 from setuptools import setup
 
-__version = "1.6.2"
+__version = "1.6.3"
 
 setup(
     name="oc-dms-mirror",
@@ -16,5 +16,9 @@ setup(
         "flask",
         "gunicorn"
     ],
-    packages=["oc_dms_mirror"])
+    packages=[
+        "oc_dms_mirror",
+        "oc_dms_mirror.rest_api",
+        "oc_dms_mirror.rest_api.app"
+        ])
 

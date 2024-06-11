@@ -140,7 +140,7 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
         self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(side_effect=_exc)
         self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
-        self.assertIsInstance(self.dmsmirror.process_component(_component), type(_exc))
+        self.assertIsInstance(self.dmsmirror.process_component(_component), str)
         self.dmsmirror.process_version.assert_not_called()
         self.dmsmirror._dms_client.get_versions.assert_called_once_with(_component)
 

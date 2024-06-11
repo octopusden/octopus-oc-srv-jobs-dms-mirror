@@ -130,12 +130,17 @@ class DmsMirror:
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
+            # this makes multiprocessing to stuck:
             # extending exception message to show the subprocess (i.e. component) where it has been raised
             # necessary to log all exceptions at the end
-            _e.args = (self.__log_msg(""), *_e.args)
-            # NOTE: we do not need here to show process (i.e. component) name once again due to previous line
-            logging.error(repr(_e), exc_info=True)
-            return _e
+            # _e.args = (self.__log_msg(""), *_e.args)
+            # DO NOT DO THAT!
+            # the second bad idea is to return exception as a result in mulitprocessing stack
+            # this makes stuck too unfortunately
+            # transfer a human-readable string to log it at the end
+            _error_message = self.__log_msg(repr(_e))
+            logging.error(_error_message, exc_info=True)
+            return _error_message
 
         return None
 
@@ -385,6 +390,9 @@ class DmsMirror:
                             default=os.getenv("DMS_USER"))
         parser.add_argument("--dms-password", dest="dms_password", help="DMS password",
                             default=os.getenv("DMS_PASSWORD"))
+        parser.add_argument("--dms-processes", dest="dms_processes", 
+                            help="Processes (threads) to run in parallel",
+                            type=int, default=3)
 
         # CITYPE properties
         parser.add_argument("--ci-type-release-notes", dest="ci_type_release_notes",
@@ -429,11 +437,11 @@ class DmsMirror:
 
         logging.info(self.__log_msg(f"Components to process: {len(self._components)}"))
 
-        with multiprocessing.Pool() as pool:
+        with multiprocessing.Pool(processes=self._args.dms_processes) as pool:
             _exceptions = pool.map(self.process_component, self._components)
 
         _components_count = len(_exceptions)
-        _exceptions = list(filter(lambda x: x is not None, _exceptions))
+        _exceptions = list(filter(lambda x: bool(x), _exceptions))
 
         logging.info(self.__log_msg(f"All [{_components_count}] components processed. Errors: [{len(_exceptions)}]"))
         return _exceptions
@@ -464,10 +472,10 @@ class DmsMirror:
             for _e in _exceptions:
                 # NOTE: we do not need to modify log message here because process name
                 # is inside the exception, see 'process_component' method
-                logging.error(repr(_e))
+                logging.error(_e)
 
             # raise first one to return non-zero code
-            raise(_exceptions.pop(0))
+            raise Exception(_exceptions.pop(0))
 
 if __name__ == '__main__':
     DmsMirror().main()

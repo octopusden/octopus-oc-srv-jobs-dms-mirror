@@ -261,7 +261,11 @@ class DmsMirror:
 
         if self.mvn_client.exists(_tgt_gav, repo=self._args.mvn_download_repo):
             logging.info(self.__log_msg(
-                f"Already exists, skipping: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
+                f"Already exists, skipping copying: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
+            if self._args.always_enqueue is True:
+                logging.info(self.__log_msg("Always enqueue parameter set, registering"))
+                _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
+                self._register_artifact(_tgt_gav, _ci_type)
             return
 
         _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
@@ -393,6 +397,9 @@ class DmsMirror:
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)
+        parser.add_argument("--always-enqueue", dest="always_enqueue",
+                            help="Enqueue if artifact exists",
+                            action="store_true", default=False)
 
         # CITYPE properties
         parser.add_argument("--ci-type-release-notes", dest="ci_type_release_notes",

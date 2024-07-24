@@ -107,6 +107,20 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         with open(self.args.config_file, mode='rt') as _config:
             self.dmsmirror._components = json.load(_config)
 
+    def test_always_enqueue(self):
+        self.args.always_enqueue = True
+        _component = list(self.dmsmirror._components.keys()).pop()
+        _versions = ["1", "2", "3"]
+        self.assertIsNotNone(_component)
+        self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror._register_artifact = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(return_value=_versions)
+        self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
+        self.assertIsNone(self.dmsmirror.process_component(_component))
+        self.assertEqual(self.dmsmirror.process_version.call_count, len(_versions))
+        self.dmsmirror._dms_client.get_versions.assert_called_once_with(_component)
+        self.dmsmirror._register_artifact.assert_called()
+
     def test_process_component_ok(self):
         _component = list(self.dmsmirror._components.keys()).pop()
         _versions = ["1", "2", "3"]

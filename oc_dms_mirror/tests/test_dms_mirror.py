@@ -51,6 +51,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.dms_password = self.env.get('DMS_PASSWORD')
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
+        self.args.always_enqueue = False
         self.dmsmirror = DmsMirror()
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
         self.dmsmirror._mvn_client = unittest.mock.MagicMock()
@@ -108,12 +109,23 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
             self.dmsmirror._components = json.load(_config)
 
     def test_always_enqueue(self):
-        artifact_info=dict()
-        artifact_info['type']='type'
+        artifact_info = {'type': 'notes'}
         self.dmsmirror._register_artifact = unittest.mock.MagicMock()
+        self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock(return_value=True)
+        self.dmsmirror._make_gav_substitute = unittest.mock.MagicMock(return_value={
+            "prefix": "com.example",
+            "v": "0.0.0.0",
+            "p": "bin",
+            "c_hyphen": ""})
         self.dmsmirror._args.always_enqueue = True
         self.dmsmirror.process_artifact(artifact_info,'component','c')
-        self.dmsmirror._register_artifact.assert_called()
+        self.dmsmirror._register_artifact.assert_called_once_with(
+            'com.example.release_notes:component:0.0.0.0:bin', 'RELEASENOTES')
+        self.dmsmirror._make_gav_substitute.assert_called_once_with(
+            'component', 'c', artifact_info)
+        self.dmsmirror._mvn_client.exists.assert_called_once_with(
+            'com.example.release_notes:component:0.0.0.0:bin',
+            repo=self.args.mvn_download_repo)
 
     def test_process_component_ok(self):
         _component = list(self.dmsmirror._components.keys()).pop()

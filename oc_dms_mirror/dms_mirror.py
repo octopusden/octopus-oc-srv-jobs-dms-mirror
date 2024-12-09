@@ -231,8 +231,12 @@ class DmsMirror:
         :param dict artifact: artifact properties from Dms
         :param str version: component version
         :param str component: DmsComponentID
-        :param dict params: configuration params
         """
+
+        if artifact.get("repositoryType") == "DOCKER":
+            logging.info(self.__log_msg(f"Skipping {artifact}: incompatible [repositoryType]"))
+            return
+
         logging.log(5, self.__log_msg(f"Artifact: {artifact}"))
 
         # we need to raise an exception, so do not use 'get'

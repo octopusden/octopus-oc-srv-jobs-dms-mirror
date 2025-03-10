@@ -28,16 +28,22 @@ def response_json(code, data):
         response=data)
 
 
+
 @dms_mirror_bp.route('/register-component-version-artifact', methods=['POST'])
 def register_component_version_artifact():
     """
-    Endpoint performing component/version sync with DMS on demand.
+    Endpoint performing artifact sync with DMS on demand.
     """
-    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}]")
+    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
     try:
-        get_dms_mirror().process_version(request.json['version'], request.json['component'])
+        data = request.json()
+        version = data['version']
+        component = data['component']
+        artifact = data['artifact']
+        get_dms_mirror().process_dms_request(version=version, component=component, artifact=artifact)
     except Exception as _e:
         logging.exception(_e)
         return response_json(400, {"result": str(_e)})
 
     return response_json(200, {"result": "Success"})
+

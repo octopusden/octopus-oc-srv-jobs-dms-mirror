@@ -225,12 +225,23 @@ class DmsMirror:
         logging.log(5, self.__log_msg(f"Returning subst: [{_result}]"))
         return _result
 
-    def process_artifact(self, artifact, component, version):
+    def process_dms_request(self, component, version, artifact):
+         if component in self._components:
+             self.process_artifact(artifact, component, version)
+         else: 
+            gav = artifact['gav']
+            classifier = f":{gav['classifier']}" if gav['classifier'] else ""
+            tgt_gav =  f"{gav['groupId']}:{gav['artifactId']}:{gav['packaging']}{classifier}:{gav['version']}"
+            self.process_artifact(artifact, component, version, tgt_gav)
+
+
+    def process_artifact(self, artifact, component, version, gav=None):
         """
         Process artifacts
         :param dict artifact: artifact properties from Dms
         :param str version: component version
         :param str component: DmsComponentID
+        :param str gav: composed gav from F1 DMS request
         """
 
         if artifact.get("repositoryType") == "DOCKER":
@@ -238,7 +249,7 @@ class DmsMirror:
             return
 
         logging.log(5, self.__log_msg(f"Artifact: {artifact}"))
-
+        
         # we need to raise an exception, so do not use 'get'
         # all these keys must exist
         _artifact_type = artifact['type']
@@ -247,20 +258,24 @@ class DmsMirror:
 
         _params = self._components[component]
         logging.log(5, self.__log_msg(f"Params: {_params}"))
-        _gav_template = _params.get("tgtGavTemplate")
+        if not gav:            
+            _gav_template = _params.get("tgtGavTemplate")
+            if _gav_template:
+                _gav_template = _gav_template.get(_artifact_type)
 
-        if _gav_template:
-            _gav_template = _gav_template.get(_artifact_type)
+            if not _gav_template:
+                logging.warning(self.__log_msg(
+                    f"Component [{component}] has no GAV settings for artifact_type [{_artifact_type}], skipping"))
+                return
 
-        if not _gav_template:
-            logging.warning(self.__log_msg(
-                f"Component [{component}] has no GAV settings for artifact_type [{_artifact_type}], skipping"))
-            return
+            _gav_template = _gav_template.replace("\\", "")
+            logging.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
+            _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
+            _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
+            
+        if gav: 
+            _tgt_gav = gav
 
-        _gav_template = _gav_template.replace("\\", "")
-        logging.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
-        _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
-        _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
         logging.info(self.__log_msg(f"Target GAV: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
 
         if self.mvn_client.exists(_tgt_gav, repo=self._args.mvn_download_repo):

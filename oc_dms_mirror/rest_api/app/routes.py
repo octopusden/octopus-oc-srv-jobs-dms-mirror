@@ -33,7 +33,7 @@ def register_component_version_artifact():
     """
     Endpoint performing component/version sync with DMS on demand.
     """
-    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}]")
+    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
     try:
         get_dms_mirror().process_version(request.json['version'], request.json['component'])
     except Exception as _e:

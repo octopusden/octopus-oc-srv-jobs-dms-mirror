@@ -1,0 +1,11 @@
+{
+    "component": {
+        "ci_type": "COMPONENTDSTR",
+        "tgtGavTemplate":{
+            "notes": "\\$prefix.release_notes:component\\$c_hyphen:\\$v:\\$p",
+            "distribution": "\\$prefix.component:\\$n:\\$v:\\$p\\$c_colon",
+            "report": "\\$prefix.release_notes:component:\\$v:\\$p:\\$cl",
+            "documentation": "\\$prefix.documentation:component:$v:\\$p"
+        }
+    }
+}

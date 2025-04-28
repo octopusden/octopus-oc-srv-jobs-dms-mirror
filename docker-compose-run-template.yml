@@ -1,0 +1,22 @@
+version: "3.7"
+
+services:
+  dms_mirror:
+    environment:
+      - AMQP_URL=${AMQP_URL}
+      - AMQP_USER=${AMQP_USER}
+      - AMQP_PASSWORD=${AMQP_PASSWORD}
+      - MVN_URL=${MVN_URL}
+      - MVN_USER=${MVN_USER}
+      - MVN_PASSWORD=${MVN_PASSWORD}
+      - DMS_URL=${DMS_URL}
+      - DMS_CRS_URL=${DMS_CRS_URL}
+      - DMS_TOKEN=${DMS_TOKEN}
+      - DMS_USER=${DMS_USER}
+      - DMS_PASSWORD=${DMS_PASSWORD}
+      - PSQL_URL=${PSQL_URL}
+      - PSQL_USER=${PSQL_USER}
+      - PSQL_PASSWORD=${PSQL_PASSWORD}
+      - MVN_PREFIX=${MVN_PREFIX}
+    image: ${DOCKER_REGISTRY_HOST:-ghcr.io}/octopusden/octopus-oc-srv-jobs-dms-mirror:latest
+

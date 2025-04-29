@@ -49,6 +49,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+**/__pycache__
 cover/
 
 # Translations
@@ -172,3 +173,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+.DS_Store
+# VS Code settings
+.vscode/
+# Local history for all JetBrains IDEs
+.idea/

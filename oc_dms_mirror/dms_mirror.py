@@ -9,6 +9,7 @@ import tempfile
 import multiprocessing
 import posixpath
 import re
+import ast
 
 from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
@@ -143,6 +144,40 @@ class DmsMirror:
             return _error_message
 
         return None
+
+    def process_version_v2(self, version, component, artifact, client_code):
+        """
+        Check if component is registered in config and if not, create a temporary one, process it and remove
+        :param str version: component version
+        :param str component: DmsComponentID
+        :param dict artifact: artifact properties from DMS
+        :param str client: client code
+        """
+        # check if component is registered in config
+        is_component = self._components.get(component)
+        if not is_component:
+            logging.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
+            _component = self._components.get("temporary-component")
+            _component_str = str(_component)  # Convert to string once
+            if client_code:
+                _component_str = _component_str.replace("$component", component).replace("$client", f".{client_code}")
+            else:
+                _component_str = _component_str.replace("$component", component)
+            _component = ast.literal_eval(_component_str)
+
+            self._components[component] = _component
+        else:
+            logging.debug(self.__log_msg(f"Component [{component}] is registered in config, skipping creation"))
+
+        # process the component
+        self.process_artifact(artifact, version, component)
+
+        # remove temporary component
+        if not is_component:
+            logging.debug(self.__log_msg(f"Removing temporary component [{component}]"))
+            del self._components[component]
+        else:
+            logging.debug(self.__log_msg(f"Component [{component}] is registered in config, skipping removal"))
 
     def process_version(self, version, component):
         """

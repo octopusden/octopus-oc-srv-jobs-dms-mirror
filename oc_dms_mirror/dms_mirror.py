@@ -158,14 +158,18 @@ class DmsMirror:
         if not is_component:
             logging.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
             _component = self._components.get("temporary-component")
-            _component_str = str(_component)  # Convert to string once
-            if client_code:
-                _component_str = _component_str.replace("$component", component).replace("$client", f".{client_code}")
-            else:
-                _component_str = _component_str.replace("$component", component)
-            _component = ast.literal_eval(_component_str)
+            if _component:
+                _component_str = str(_component)  # Convert to string once
+                if client_code:
+                    _component_str = _component_str.replace("$component", component).replace("$client", f".{client_code}")
+                else:
+                    _component_str = _component_str.replace("$component", component)
+                _component = ast.literal_eval(_component_str)
 
-            self._components[component] = _component
+                self._components[component] = _component
+            else:
+                logging.error(self.__log_msg(f"Temporary component not found in config, skipping [{component}]"))
+                return
         else:
             logging.debug(self.__log_msg(f"Component [{component}] is registered in config, skipping creation"))
 

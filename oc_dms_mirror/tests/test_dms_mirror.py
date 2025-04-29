@@ -178,6 +178,58 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
 
         for _artifact in _artifacts:
             self.dmsmirror.process_artifact.assert_any_call(_artifact, _component, _version)
+    
+    def test_process_version_v2_not_exist_component(self):
+        component = 'not-exsting-component'
+        version = '1.0.0'
+        artifact = 'artifact'
+        client_code = 'client_code'
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
+        self.assertIsNone(self.dmsmirror.process_version_v2(version, component,artifact,client_code))
+        self.dmsmirror.process_artifact.assert_called_once_with(artifact,version,component)
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+
+    def test_process_version_v2_not_exist_component_no_client(self):
+        component = 'not-exsting-component'
+        version = '1.0.0'
+        artifact = 'artifact'
+        client_code = None
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
+        self.assertIsNone(self.dmsmirror.process_version_v2(version, component,artifact,client_code))
+        self.dmsmirror.process_artifact.assert_called_once_with(artifact,version,component)
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+
+    def test_process_version_v2_not_exist_component_no_temporary(self):
+        component = 'not-exsting-component'
+        version = '1.0.0'
+        artifact = 'artifact'
+        client_code = 'client_code'
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
+        self.assertIsNone(self.dmsmirror.process_version_v2(version, component,artifact,client_code))
+        self.dmsmirror.process_artifact.assert_not_called()
+        _component = self.dmsmirror_components.get(component)
+        self.assertIsNone(_component)
+
+    def test_process_version_v2_exist_component(self):
+        version = '1.0.0'
+        artifact = 'artifact'
+        client_code = 'client_code'
+        _component = list(self.dmsmirror._components.keys()).pop()
+        self.assertIsNotNone(_component)
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
+        self.assertIsNone(self.dmsmirror.process_version_v2(version, _component,artifact,client_code))
+        self.dmsmirror.process_artifact.assert_called_once_with(artifact,version,_component)
+        _component = self.dmsmirror._components.get(_component)
+        self.assertIsNotNone(_component)
+        
 
     def _get_artifact_test_case(self, suffix):
         _config = self.dmsmirror._components

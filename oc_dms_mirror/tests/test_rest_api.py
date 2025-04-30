@@ -28,7 +28,7 @@ class RestApiTestSuite(unittest.TestCase):
                 "type": "register-component-version-artifact",
                 "component": "my_component",
                 "version": "my_version",
-                "client_code": "my_client_code",
+                "clientCode": "my_client_code",
                 "artifact": {}
             }
             response = self.test_client.post("/register-component-version-artifact", json=data)
@@ -48,7 +48,7 @@ class RestApiTestSuite(unittest.TestCase):
                 "type": "register-component-version-artifact",
                 "component": "my_component",
                 "version": "my_version",
-                "client_code": None,
+                "clientCode": None,
                 "artifact": {}
             }
             response = self.test_client.post("/register-component-version-artifact", json=data)

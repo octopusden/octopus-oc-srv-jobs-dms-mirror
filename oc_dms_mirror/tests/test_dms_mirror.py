@@ -210,12 +210,15 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         version = '1.0.0'
         artifact = 'artifact'
         client_code = 'client_code'
+        _temporary = self.dmsmirror._components.get('temporary-component')
+        del self.dmsmirror._components['temporary-component']
         _component = self.dmsmirror._components.get(component)
         self.assertIsNone(_component)
         self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
         self.assertIsNone(self.dmsmirror.process_version_v2(version, component,artifact,client_code))
         self.dmsmirror.process_artifact.assert_not_called()
         _component = self.dmsmirror._components.get(component)
+        self.dmsmirror._components['temporary-component'] = _temporary
         self.assertIsNone(_component)
 
     def test_process_version_v2_exist_component(self):

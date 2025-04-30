@@ -20,7 +20,7 @@ class RestApiTestSuite(unittest.TestCase):
     def test_register_component_version_artifact_ok(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.process_version = unittest.mock.MagicMock()
+            _dmsMirror.process_version_v2 = unittest.mock.MagicMock()
             _get_dms_mirror.return_value = _dmsMirror
             self.create_app()
 
@@ -40,7 +40,7 @@ class RestApiTestSuite(unittest.TestCase):
     def test_register_component_version_artifact_fail(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.process_version = unittest.mock.MagicMock(side_effect=Exception('processing failed'))
+            _dmsMirror.process_version_v2 = unittest.mock.MagicMock(side_effect=Exception('processing failed'))
             _get_dms_mirror.return_value = _dmsMirror
             self.create_app()
 

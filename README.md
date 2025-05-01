@@ -18,6 +18,18 @@ Way to provide is `--config-file` parameter in the command line. *Default*: `con
     }
   }
 ```
+In config file should be create at least one temporary JSON, with temporary-component naming. It get used by dynamic process for distibutives we don't want to keep as static.
+
+```
+  "temporary-component": {
+    "ci_type": "$component",
+    "enabled": true,
+    "tgtGavTemplate": { 
+      "notes": "com.example.some.$component\\$n\\$cl:\\$v:txt",
+      "distribution": "com.example.some$client.$component:\\$n\\$cl:\\$v:zip"
+    }
+  }
+```
 
 ## DEPRECATED JSON sections
 Versions before *3.10* also require `componentId` and `artifactType` which is not necessary any more.

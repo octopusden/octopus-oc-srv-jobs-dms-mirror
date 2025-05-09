@@ -35,7 +35,6 @@ def register_component_version_artifact():
     """
     logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
     try:
-        get_dms_mirror().dms_client.get_artifacts(request.json['component'])
         get_dms_mirror().process_version(request.json['version'], request.json['component'])
     except Exception as _e:
         logging.exception(_e)

@@ -1,3 +1,5 @@
+import json
+
 from ..rest_api.app import create_app
 from .config import TestConfig
 import unittest
@@ -54,3 +56,91 @@ class RestApiTestSuite(unittest.TestCase):
             self.assertEqual(response.json.get('result'), 'processing failed')
 
             _dmsMirror.process_version.assert_called_once_with("my_version", "my_component")
+
+    def test_generate_gav_ok(self):
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+            _dmsMirror = unittest.mock.MagicMock()
+            _dmsMirror.get_or_generate_gav_template = unittest.mock.MagicMock()
+
+            mock_gav = {
+                "test-component": {
+                    "ci_type": "test-component",
+                    "tgtGavTemplate": {
+                        "notes": "\\$prefix.release_notes:test-component\\$c_hyphen:\\$v:\\$p",
+                        "distribution": "\\$prefix.test-client.test-component:\\$n:\\$v:\\$p\\$c_colon",
+                        "report": "\\$prefix.release_notes:test-component:\\$v:\\$p:\\$cl",
+                        "documentation": "\\$prefix.documentation:test-component:$v:\\$p"
+                    }
+                }
+            }
+            _get_dms_mirror.return_value = _dmsMirror
+            _dmsMirror.get_or_generate_gav_template.return_value = mock_gav
+
+            self.create_app()
+
+            data = {
+                "componentId": "test-component",
+                "clientCode": "test-client"
+            }
+            response = self.test_client.post("/generate-gav", json=data)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(json.loads(response.data), mock_gav)
+
+            _dmsMirror.get_or_generate_gav_template.assert_called_once_with("test-component", "test-client")
+
+    def test_generate_gav_without_client_code_ok(self):
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+            _dmsMirror = unittest.mock.MagicMock()
+            _dmsMirror.get_or_generate_gav_template = unittest.mock.MagicMock()
+
+            mock_gav = {
+                "test-component": {
+                    "ci_type": "test-component",
+                    "tgtGavTemplate": {
+                        "notes": "\\$prefix.release_notes:test-component\\$c_hyphen:\\$v:\\$p",
+                        "distribution": "\\$prefix.test-component:\\$n:\\$v:\\$p\\$c_colon",
+                        "report": "\\$prefix.release_notes:test-component:\\$v:\\$p:\\$cl",
+                        "documentation": "\\$prefix.documentation:test-component:$v:\\$p"
+                    }
+                }
+            }
+            _get_dms_mirror.return_value = _dmsMirror
+            _dmsMirror.get_or_generate_gav_template.return_value = mock_gav
+
+            self.create_app()
+
+            data = {
+                "componentId": "test-component"
+            }
+            response = self.test_client.post("/generate-gav", json=data)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(json.loads(response.data), mock_gav)
+
+            _dmsMirror.get_or_generate_gav_template.assert_called_once_with("test-component", None)
+
+    def test_generate_gav_without_component(self):
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+            _dmsMirror = unittest.mock.MagicMock()
+            _dmsMirror.get_or_generate_gav_template = unittest.mock.MagicMock()
+
+            mock_gav = {
+                "test-component": {
+                    "ci_type": "test-component",
+                    "tgtGavTemplate": {
+                        "notes": "\\$prefix.release_notes:test-component\\$c_hyphen:\\$v:\\$p",
+                        "distribution": "\\$prefix.test-component:\\$n:\\$v:\\$p\\$c_colon",
+                        "report": "\\$prefix.release_notes:test-component:\\$v:\\$p:\\$cl",
+                        "documentation": "\\$prefix.documentation:test-component:$v:\\$p"
+                    }
+                }
+            }
+            _get_dms_mirror.return_value = _dmsMirror
+            _dmsMirror.get_or_generate_gav_template.return_value = mock_gav
+
+            self.create_app()
+
+            data = {
+                "clientCode": "test-component"
+            }
+            response = self.test_client.post("/generate-gav", json=data)
+            self.assertEqual(response.status_code, 400)

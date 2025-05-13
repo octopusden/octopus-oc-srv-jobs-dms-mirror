@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import ast
 import logging
 import os
 import time
@@ -279,6 +280,24 @@ class DmsMirror:
         self._copy_artifact(component, version, artifact, _tgt_gav)
         logging.info(self.__log_msg(f"Registering: [{_tgt_gav}] with ci_type [{_ci_type}]"))
         self._register_artifact(_tgt_gav, _ci_type)
+
+    def get_or_generate_gav_template(self, component, client_code=None):
+        _params = self._components.get(component)
+        if _params:
+            return _params.get("tgtGavTemplate")
+
+        _component = self._components.get("temporary-component")
+        if not _component:
+            return
+
+        _component_str = str(_component)
+        if client_code:
+            _component_str = _component_str.replace("$component", component).replace("$client", f"{client_code}")
+        else:
+            _component_str = _component_str.replace("$component", component).replace(".$client", "")
+        _component = ast.literal_eval(_component_str)
+
+        return _component
 
     def _register_artifact(self, tgt_gav, ci_type):
         """

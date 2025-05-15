@@ -42,7 +42,7 @@ def register_component_version_artifact():
 
     return response_json(200, {"result": "Success"})
 
-@dms_mirror_bp.route('/generate-gav', methods=['POST'])
+@dms_mirror_bp.route('/get-gav', methods=['POST'])
 def generate_gav():
     """
     Endpoint for getting or generating GAV Template.
@@ -53,8 +53,9 @@ def generate_gav():
         if not component:
             return response_json(400, {"result": "componentId cannot be blank"})
 
-        client_code = request.json.get('clientCode')
-        gav_template = get_dms_mirror().get_or_generate_gav_template(component, client_code)
+        gav_template = get_dms_mirror().get_gav(component)
+        if not gav_template:
+            return response_json(404, {"result": f"gav template for component {component} not found"})
     except Exception as _e:
         logging.exception(_e)
         return response_json(400, {"result": str(_e)})

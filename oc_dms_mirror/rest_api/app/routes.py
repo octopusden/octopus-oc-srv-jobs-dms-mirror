@@ -53,7 +53,7 @@ def generate_gav():
         if not component:
             return response_json(400, {"result": "componentId cannot be blank"})
 
-        gav_template = get_dms_mirror().get_gav(component)
+        gav_template = get_dms_mirror().get_component_config(component)
         if not gav_template:
             return response_json(404, {"result": f"gav template for component {component} not found"})
     except Exception as _e:

@@ -67,7 +67,7 @@ class DmsMirror:
         if not self._pg_client:
             self._pg_client = self._get_pg_client()
 
-        return self._dms_client
+        return self._pg_client
 
     def _get_pg_client(self):
         """

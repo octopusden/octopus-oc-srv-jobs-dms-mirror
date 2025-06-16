@@ -268,6 +268,11 @@ class DmsMirror:
             f"Processing component:artifact_type:version = [{component}:{_artifact_type}:{version}]"))
 
         _params = self.get_component_config(component)
+        if not _params:
+            logging.warning(self.__log_msg(
+                f"Component [{component}] has not yet registered, skipping"))
+            return
+
         logging.log(5, self.__log_msg(f"Params: {_params}"))
         _gav_template = _params.get("tgtGavTemplate")
 

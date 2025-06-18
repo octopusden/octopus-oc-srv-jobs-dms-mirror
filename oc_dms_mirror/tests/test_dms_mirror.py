@@ -40,6 +40,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.amqp_username = self.env.get('AMQP_USER')
         self.args.amqp_password = self.env.get('AMQP_PASSWORD')
         self.args.config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resources', 'config.json')
+        self.args.gav_template_config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resources', 'gav_template_config_file.json')
         self.args.mvn_prefix = self.env.get('MVN_PREFIX')
         self.args.mvn_url = self.env.get('MVN_URL')
         self.args.mvn_user = self.env.get('MVN_USER')

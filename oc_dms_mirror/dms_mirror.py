@@ -15,7 +15,7 @@ from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
 from string import Template
 
-from oc_cdtapi import NexusAPI, DmsAPI
+from oc_cdtapi import NexusAPI, DmsAPI, PgAPI
 
 from oc_cdtapi.API import HttpAPIError
 from requests.exceptions import ConnectionError
@@ -31,6 +31,7 @@ class DmsMirror:
         self.__errors = (ConnectionError, HttpAPIError, KeyError)
         self._dms_client = None
         self._mvn_client = None
+        self._pg_client = None
         self._queue_client = None
         self.__process_name = "?"
 
@@ -60,6 +61,26 @@ class DmsMirror:
             self._dms_client = self._get_dms_client()
 
         return self._dms_client
+
+    @property
+    def pg_client(self):
+        if not self._pg_client:
+            self._pg_client = self._get_pg_client()
+
+        return self._pg_client
+
+    def _get_pg_client(self):
+        """
+        Return PgAPI instance basing on version specified
+        :return PgAPI.PostgresAPI:
+        """
+
+        _pg_client = PgAPI.PostgresAPI(
+                root=self._args.pg_url,
+                user=self._args.pg_user,
+                auth=self._args.pg_password)
+
+        return _pg_client
 
     def _get_dms_client(self):
         """
@@ -246,19 +267,22 @@ class DmsMirror:
         logging.info(self.__log_msg(
             f"Processing component:artifact_type:version = [{component}:{_artifact_type}:{version}]"))
 
-        _params = self._components[component]
+        _params = self.get_component_config(component)
+        if not _params:
+            logging.warning(self.__log_msg(
+                f"Component [{component}] has not yet registered, skipping"))
+            return
+
         logging.log(5, self.__log_msg(f"Params: {_params}"))
         _gav_template = _params.get("tgtGavTemplate")
-
-        if _gav_template:
-            _gav_template = _gav_template.get(_artifact_type)
 
         if not _gav_template:
             logging.warning(self.__log_msg(
                 f"Component [{component}] has no GAV settings for artifact_type [{_artifact_type}], skipping"))
             return
 
-        _gav_template = _gav_template.replace("\\", "")
+        _gav_template = _gav_template.get(_artifact_type).replace("\\", "")
+
         logging.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
         _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
         _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
@@ -281,12 +305,39 @@ class DmsMirror:
         logging.info(self.__log_msg(f"Registering: [{_tgt_gav}] with ci_type [{_ci_type}]"))
         self._register_artifact(_tgt_gav, _ci_type)
 
-    def get_gav(self, component):
+    def get_component_config(self, component):
         _params = self._components.get(component)
         if _params:
-            return _params.get("tgtGavTemplate")
+            return _params
 
-        return None
+        try:
+            self.pg_client.get_ci_type_by_code(component)
+        except HttpAPIError as e:
+            if e.code == 404:
+                return None
+
+        return self._generate_component_config(component)
+
+    def _generate_component_config(self, component):
+        logging.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
+        components = self._make_dms_api_call_with_retries(self.dms_client.get_components()) or list()
+        client_code = None
+        for comp in components:
+            if comp["id"] == component:
+                client_code = comp["clientCode"]
+
+        _component = self._gav_template
+        if not _component:
+            return _component
+
+        _component_str = str(_component)
+        if client_code:
+            _component_str = _component_str.replace("$component", component).replace("$client", f".{client_code}")
+        else:
+            _component_str = _component_str.replace("$component", component)
+        _component = ast.literal_eval(_component_str)
+
+        return _component
 
     def _register_artifact(self, tgt_gav, ci_type):
         """
@@ -375,6 +426,8 @@ class DmsMirror:
         parser.add_argument("--log-level", dest="log_level", type=int, default=20, help="Logging level")
         parser.add_argument("--config-file", dest="config_file", type=str, help="Path to configuration file",
                             default=os.path.join(os.getcwd(), "config.json"))
+        parser.add_argument("--gav-template-config-file", dest="gav_template_config_file", type=str, help="Path to gav template configuration file",
+                            default=os.path.join(os.getcwd(), "gav_template_config.json"))
         parser.add_argument("--retries-count", dest="retries_count", type=int,
                             help='Retries count for DMS connection failures', default=5)
 
@@ -406,6 +459,12 @@ class DmsMirror:
                             default=os.getenv("DMS_USER"))
         parser.add_argument("--dms-password", dest="dms_password", help="DMS password",
                             default=os.getenv("DMS_PASSWORD"))
+        parser.add_argument("--pg-url", dest="pg_url", help="PG URL",
+                            default=os.getenv("PG_URL"))
+        parser.add_argument("--pg-user", dest="pg_user", help="PG user",
+                            default=os.getenv("PG_USER"))
+        parser.add_argument("--pg-password", dest="pg_password", help="PG password",
+                            default=os.getenv("PG_PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)
@@ -430,6 +489,7 @@ class DmsMirror:
 
         # adjust file paths to absolute
         self._args.config_file = os.path.abspath(self._args.config_file)
+        self._args.gav_template_config_file = os.path.abspath(self._args.gav_template_config_file)
 
         # just log the arguments
         for _k, _v in self._args.__dict__.items():
@@ -444,6 +504,13 @@ class DmsMirror:
     def load_config(self):
         with open(self._args.config_file, mode='rt') as _config:
             self._components = json.load(_config)
+
+        if os.path.exists(self._args.gav_template_config_file):
+            with open(self._args.gav_template_config_file, mode='rt') as _config:
+                self._gav_template = json.load(_config)
+        else:
+            print(f"Gav template config file not found: {self._args.gav_template_config_file}")
+            self._gav_template = None
 
 
     def run(self):

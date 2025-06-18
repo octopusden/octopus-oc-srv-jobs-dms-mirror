@@ -60,7 +60,7 @@ class RestApiTestSuite(unittest.TestCase):
     def test_get_gav_ok(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.get_gav = unittest.mock.MagicMock()
+            _dmsMirror.get_dms_mirror = unittest.mock.MagicMock()
 
             mock_gav = {
                 "test-component": {
@@ -74,7 +74,7 @@ class RestApiTestSuite(unittest.TestCase):
                 }
             }
             _get_dms_mirror.return_value = _dmsMirror
-            _dmsMirror.get_gav.return_value = mock_gav
+            _dmsMirror.get_component_config.return_value = mock_gav
 
             self.create_app()
 
@@ -86,12 +86,12 @@ class RestApiTestSuite(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(json.loads(response.data), mock_gav)
 
-            _dmsMirror.get_gav.assert_called_once_with("test-component")
+            _dmsMirror.get_component_config.assert_called_once_with("test-component")
 
     def test_generate_gav_without_component(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.get_gav = unittest.mock.MagicMock()
+            _dmsMirror.get_dms_mirror = unittest.mock.MagicMock()
 
             mock_gav = {
                 "test-component": {
@@ -105,7 +105,7 @@ class RestApiTestSuite(unittest.TestCase):
                 }
             }
             _get_dms_mirror.return_value = _dmsMirror
-            _dmsMirror.get_gav.return_value = mock_gav
+            _dmsMirror.get_dms_mirror.return_value = mock_gav
 
             self.create_app()
 

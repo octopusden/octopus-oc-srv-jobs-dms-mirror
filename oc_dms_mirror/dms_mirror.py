@@ -320,7 +320,7 @@ class DmsMirror:
 
     def _generate_component_config(self, component):
         logging.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
-        components = self._make_dms_api_call_with_retries(self.dms_client.get_components()) or list()
+        components = self._make_dms_api_call_with_retries(self.dms_client.get_components) or list()
         client_code = None
         for comp in components:
             if comp["id"] == component:
@@ -332,9 +332,9 @@ class DmsMirror:
 
         _component_str = str(_component)
         if client_code:
-            _component_str = _component_str.replace("$component", component).replace("$client", f".{client_code}")
+            _component_str = _component_str.replace("$component", component).replace(".$client", f".{client_code}")
         else:
-            _component_str = _component_str.replace("$component", component)
+            _component_str = _component_str.replace("$component", component).replace(".$client", "")
         _component = ast.literal_eval(_component_str)
 
         return _component

@@ -139,7 +139,7 @@ class DmsMirror:
         if event_type != self.DmsEventType.PUBLISH_COMPONENT_VERSION.value:
             _err_msg = f"Skipping {component} since event type not 'PUBLISH_COMPONENT_VERSION'"
             logging.error(self.__log_msg(_err_msg))
-            raise _err_msg
+            raise Exception(_err_msg)
 
         artifacts =  payload.get('artifacts')
         maven_artifacts = []

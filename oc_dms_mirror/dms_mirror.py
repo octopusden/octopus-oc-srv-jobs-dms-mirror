@@ -10,6 +10,7 @@ import tempfile
 import multiprocessing
 import posixpath
 import re
+from enum import Enum
 
 from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
@@ -125,6 +126,75 @@ class DmsMirror:
         _q.ping()
         _q.disconnect()
         return _q
+
+    def process_component_webhook(self, payload):
+        """
+        Process component from webhook
+        :param str payload: Webhook payload
+        :return: 'None' on success, raised exception on failure
+        """
+        component = payload.get('componentVersion').get('component')
+        event_type = payload.get('type')
+
+        if event_type != self.DmsEventType.PUBLISH_COMPONENT_VERSION.value:
+            _err_msg = f"Skipping {component} since event type not 'PUBLISH_COMPONENT_VERSION'"
+            logging.error(self.__log_msg(_err_msg))
+            raise _err_msg
+
+        artifacts =  payload.get('artifacts')
+        maven_artifacts = []
+
+        for artifact in artifacts:
+            if artifact['repositoryType'] == "MAVEN":
+                maven_artifacts.append(artifact)
+            else :
+                logging.info(self.__log_msg(f"Skipping {artifact['displayName']}: incompatible [repositoryType]"))
+
+        logging.log(5, self.__log_msg(f"Artifacts to process: {len(maven_artifacts)}"))
+
+        for artifact in maven_artifacts:
+            _artifact_version = artifact['gav']['version']
+            _artifact_type = artifact['type']
+            logging.info(self.__log_msg(
+                f"Processing component:artifact_type:version = [{component}:{_artifact_type}:{_artifact_version}]"))
+
+            _params = self.get_component_config(component)
+            if not _params:
+                _err_msg = f"Component [{component}] has not yet registered"
+                logging.error(self.__log_msg(_err_msg))
+                return
+
+            logging.log(5, self.__log_msg(f"Params: {_params}"))
+            _gav_template = _params.get("tgtGavTemplate")
+
+            if not _gav_template:
+                _err_msg = f"Component [{component}] has no GAV settings for artifact_type [{_artifact_type}]"
+                logging.error(self.__log_msg(_err_msg))
+                return Exception(_err_msg)
+
+            _gav_template = _gav_template.get(_artifact_type).replace("\\", "")
+
+            logging.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{_artifact_version}]: [{_gav_template}]"))
+            _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, _artifact_version, artifact))
+            _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
+            logging.info(self.__log_msg(f"Target GAV: [{component}:{_artifact_type}:{_artifact_version}] ==> [{_tgt_gav}]"))
+
+            if self.mvn_client.exists(_tgt_gav, repo=self._args.mvn_download_repo):
+                logging.info(self.__log_msg(
+                    f"Already exists, skipping copying: [{component}:{_artifact_type}:{_artifact_version}] ==> [{_tgt_gav}]"))
+                if self._args.always_enqueue is True:
+                    logging.info(self.__log_msg("Always enqueue parameter set, registering"))
+                    _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
+                    self._register_artifact(_tgt_gav, _ci_type)
+                return
+
+            _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
+            logging.debug(self.__log_msg(f"ci_type: [{component}:{_artifact_type}:{_artifact_version}] ==> [{_ci_type}]"))
+
+            logging.info(self.__log_msg(f"Copying: [{component}:{_artifact_type}:{_artifact_version}] ==> [{_tgt_gav}]"))
+            self._copy_artifact(component, _artifact_version, artifact, _tgt_gav)
+            logging.info(self.__log_msg(f"Registering: [{_tgt_gav}] with ci_type [{_ci_type}]"))
+            self._register_artifact(_tgt_gav, _ci_type)
 
     def process_component(self, component):
         """
@@ -404,6 +474,13 @@ class DmsMirror:
 
                 logging.debug(self.__log_msg(repr(_err)), exc_info=True)
                 time.sleep(30)
+
+    class DmsEventType(Enum):
+        PUBLISH_COMPONENT_VERSION = "PUBLISH_COMPONENT_VERSION"
+        REVOKE_COMPONENT_VERSION = "REVOKE_COMPONENT_VERSION"
+        REGISTER_COMPONENT_VERSION_ARTIFACT = "REGISTER_COMPONENT_VERSION_ARTIFACT"
+        DELETE_COMPONENT_VERSION_ARTIFACT = "DELETE_COMPONENT_VERSION_ARTIFACT"
+
 
     def prepare_parser(self):
         """

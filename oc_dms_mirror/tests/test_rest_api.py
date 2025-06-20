@@ -22,7 +22,7 @@ class RestApiTestSuite(unittest.TestCase):
     def test_register_component_version_artifact_ok(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.process_version = unittest.mock.MagicMock()
+            _dmsMirror.process_component_webhook = unittest.mock.MagicMock()
             _get_dms_mirror.return_value = _dmsMirror
             self.create_app()
 
@@ -36,12 +36,12 @@ class RestApiTestSuite(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json.get('result'), 'Success')
 
-            _dmsMirror.process_version.assert_called_once_with("my_version", "my_component")
+            _dmsMirror.process_component_webhook.assert_called_once_with(data)
 
     def test_register_component_version_artifact_fail(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
-            _dmsMirror.process_version = unittest.mock.MagicMock(side_effect=Exception('processing failed'))
+            _dmsMirror.process_component_webhook = unittest.mock.MagicMock(side_effect=Exception('processing failed'))
             _get_dms_mirror.return_value = _dmsMirror
             self.create_app()
 
@@ -55,7 +55,7 @@ class RestApiTestSuite(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json.get('result'), 'processing failed')
 
-            _dmsMirror.process_version.assert_called_once_with("my_version", "my_component")
+            _dmsMirror.process_component_webhook.assert_called_once_with(data)
 
     def test_get_gav_ok(self):
         with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:

@@ -10,6 +10,7 @@ import tempfile
 import multiprocessing
 import posixpath
 import re
+from enum import Enum
 
 from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
@@ -125,6 +126,26 @@ class DmsMirror:
         _q.ping()
         _q.disconnect()
         return _q
+
+    def process_component_webhook(self, payload):
+        """
+        Process component from webhook
+        :param str payload: Webhook payload
+        :return: 'None' on success, raised exception on failure
+        """
+        component = payload.get('componentVersion').get('component')
+        version = payload.get('componentVersion').get('version')
+        event_type = payload.get('type')
+
+        if event_type != self.DmsEventType.PUBLISH_COMPONENT_VERSION.value:
+            _err_msg = f"Skipping {component} since event type not 'PUBLISH_COMPONENT_VERSION'"
+            logging.error(self.__log_msg(_err_msg))
+            raise Exception(_err_msg)
+
+        artifacts =  payload.get('artifacts')
+
+        for artifact in artifacts:
+            self.process_artifact(artifact, component, version)
 
     def process_component(self, component):
         """
@@ -404,6 +425,13 @@ class DmsMirror:
 
                 logging.debug(self.__log_msg(repr(_err)), exc_info=True)
                 time.sleep(30)
+
+    class DmsEventType(Enum):
+        PUBLISH_COMPONENT_VERSION = "PUBLISH_COMPONENT_VERSION"
+        REVOKE_COMPONENT_VERSION = "REVOKE_COMPONENT_VERSION"
+        REGISTER_COMPONENT_VERSION_ARTIFACT = "REGISTER_COMPONENT_VERSION_ARTIFACT"
+        DELETE_COMPONENT_VERSION_ARTIFACT = "DELETE_COMPONENT_VERSION_ARTIFACT"
+
 
     def prepare_parser(self):
         """

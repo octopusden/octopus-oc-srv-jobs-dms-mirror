@@ -332,14 +332,21 @@ class DmsMirror:
             return _params
 
         try:
-            self.pg_client.get_ci_type_by_code(component)
+            citype = self.pg_client.get_citypedms_by_dms_id(component)
         except HttpAPIError as e:
             if e.code == 404:
+                logging.warning(
+                    self.__log_msg(f"Component [{component}] not registered in config nor in database, skipping"))
                 return None
 
-        return self._generate_component_config(component)
+        return self._generate_component_config(citype)
 
-    def _generate_component_config(self, component):
+    def _generate_component_config(self, citype):
+        component = citype.get('dms_id')
+        citype_id = citype.get('ci_type_id')
+        if not component or not citype_id:
+            logging.error(self.__log_msg(f"Invalid data for component [{component}] or citype [{citype_id}]"))
+            return None
         logging.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
         components = self._make_dms_api_call_with_retries(self.dms_client.get_components) or list()
         client_code = None
@@ -353,9 +360,9 @@ class DmsMirror:
 
         _component_str = str(_component)
         if client_code:
-            _component_str = _component_str.replace("$component", component).replace(".$client", f".{client_code}")
+            _component_str = _component_str.replace("$component", citype_id).replace(".$client", f".{client_code}")
         else:
-            _component_str = _component_str.replace("$component", component).replace(".$client", "")
+            _component_str = _component_str.replace("$component", citype_id).replace(".$client", "")
         _component = ast.literal_eval(_component_str)
 
         return _component

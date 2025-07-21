@@ -142,10 +142,77 @@ class DmsMirror:
             logging.error(self.__log_msg(_err_msg))
             raise Exception(_err_msg)
 
+        if self._args.auto_register_component:
+            self.register_component(payload)
+
         artifacts =  payload.get('artifacts')
 
         for artifact in artifacts:
             self.process_artifact(artifact, component, version)
+
+    def register_component(self, payload):
+        component_id = payload.get("componentVersion").get("component")
+        component_name = payload.get("componentVersion").get("displayName")
+
+        if self.is_component_registered(component_id):
+            logging.info(f"Component with id [{component_id}] already registered, skipping")
+            return
+
+        logging.info(f"Registering component with id [{component_id}]")
+        client = payload.get("componentVersion").get("clientCode")
+        register_payload = {
+            "ci_type_id": component_id,
+            "ci_type_group_id": component_id,
+            "name": component_name,
+            "is_standard": "Y" if client else "N",
+            "is_deliverable": True,
+            "regexp": self.generate_ci_regexp(component_id, client),
+            "loc_type_id": "NXS",
+            "dms_id": component_id
+        }
+
+        try:
+            res = self.pg_client.post_new_component(register_payload)
+            if res.status_code == 200:
+                logging.warning("Component couldn't be registered, due to duplicate")
+        except HttpAPIError as e:
+            logging.error(f"Component registration error: [{e.resp}]")
+        logging.info(f"Component with id [{component_id}] registered")
+
+    def generate_ci_regexp(self, component, client=None):
+        distr_gav_template = self._gav_template.get("tgtGavTemplate").get("distribution")
+
+        distr_gav_template = distr_gav_template.replace("\\", "")
+
+        if client:
+            distr_gav_template = distr_gav_template.replace("$component", component).replace(".$client", f".{client}")
+        else:
+            distr_gav_template = distr_gav_template.replace("$component", component).replace(".$client", "")
+
+        _result = {
+            "n": "[^:]+",
+            "v": "_VERSION_",
+            "p": "[a-z]+",
+            "c": "",
+            "prefix": self._args.mvn_prefix,
+        }
+        _result["c_hyphen"] = f"-{_result['c']}" if _result["c"] else ""
+        _result["c_colon"] = f":{_result['c']}" if _result["c"] else ""
+
+        temp_template = Template(distr_gav_template).substitute(_result)
+
+        escaped_template = re.sub(r'(?<!\$)\.', r'\\.', temp_template)
+
+        return escaped_template
+
+    def is_component_registered(self, component):
+        try:
+            self.pg_client.get_citypedms_by_dms_id(component)
+        except HttpAPIError as e:
+            if e.code == 404:
+                return False
+
+        return True
 
     def process_component(self, component):
         """
@@ -512,7 +579,8 @@ class DmsMirror:
                             help="CI Type for Release Notes artifacts", default="RELEASENOTES")
         parser.add_argument("--ci-type-documentation", dest="ci_type_documentation",
                             help="CI Type for Documentation artifacts", default="DOCS")
-
+        parser.add_argument("--auto-register-component", dest="auto_register_component",
+                            help="Auto registration for new component", default=os.getenv("AUTO_REGISTRATION", False))
         return parser
 
     def setup_from_args(self, args):

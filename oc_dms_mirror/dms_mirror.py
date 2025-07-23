@@ -160,6 +160,9 @@ class DmsMirror:
 
         logging.info(f"Registering component with id [{component_id}]")
         client = payload.get("componentVersion").get("clientCode")
+        ciregexp = self.generate_ci_regexp(component_id, client)
+        if not ciregexp:
+            return
         register_payload = {
             "ci_type_id": component_id,
             "ci_type_group_id": component_id,
@@ -181,6 +184,11 @@ class DmsMirror:
 
     def generate_ci_regexp(self, component, client=None):
         distr_gav_template = self._gav_template.get("tgtGavTemplate").get("distribution")
+        if not distr_gav_template:
+            logging.warning(
+                self.__log_msg("Gav Template for distribution is not appear, skipping")
+            )
+            return None
 
         distr_gav_template = distr_gav_template.replace("\\", "")
 
@@ -404,7 +412,10 @@ class DmsMirror:
             if e.code == 404:
                 logging.warning(
                     self.__log_msg(f"Component [{component}] not registered in config nor in database, skipping"))
-                return None
+            else:
+                logging.error(
+                    self.__log_msg(f"Postgres client error: {e.resp}"))
+            return None
 
         return self._generate_component_config(citype)
 

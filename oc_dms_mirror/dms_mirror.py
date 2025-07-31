@@ -167,7 +167,7 @@ class DmsMirror:
             "ci_type_id": component_id,
             "ci_type_group_id": component_id,
             "name": component_name,
-            "is_standard": "Y" if client else "N",
+            "is_standard": "N" if client else "Y",
             "is_deliverable": True,
             "regexp": self.generate_ci_regexp(component_id, client),
             "loc_type_id": "NXS",

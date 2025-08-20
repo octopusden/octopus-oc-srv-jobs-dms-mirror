@@ -171,7 +171,9 @@ class DmsMirror:
             "is_deliverable": True,
             "regexp": self.generate_ci_regexp(component_id, client),
             "loc_type_id": "NXS",
-            "dms_id": component_id
+            "dms_id": component_id,
+            "doc_artifactid": component_id,
+            "rn_artifactid": component_id
         }
 
         try:

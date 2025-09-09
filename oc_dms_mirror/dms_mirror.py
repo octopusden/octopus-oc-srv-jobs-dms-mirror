@@ -16,7 +16,7 @@ from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
 from string import Template
 
-from oc_cdtapi import NexusAPI, DmsAPI, PgAPI
+from oc_cdtapi import NexusAPI, DmsAPI, PgAPI, VaultAPI
 
 from oc_cdtapi.API import HttpAPIError
 from requests.exceptions import ConnectionError
@@ -531,6 +531,8 @@ class DmsMirror:
         """
         Fill the parser with arguments
         """
+        vault_api = VaultAPI.VaultAPI()
+
         if not parser:
             parser = self.prepare_parser()
 
@@ -548,38 +550,38 @@ class DmsMirror:
 
         # MVN arguments
         parser.add_argument("--mvn-prefix", dest="mvn_prefix", type=str, help="MVN GroupId prefix for destination",
-                            default=os.getenv("MVN_PREFIX") or "com.example")
+                            default=vault_api.load_secret("MVN_PREFIX") or "com.example")
         parser.add_argument("--mvn-url", dest="mvn_url", help="MVN URL",
-                            default=os.getenv("MVN_URL"))
+                            default=vault_api.load_secret("MVN_URL"))
         parser.add_argument("--mvn-user", dest="mvn_user", help="MVN user",
-                            default=os.getenv("MVN_USER"))
+                            default=vault_api.load_secret("MVN_USER"))
         parser.add_argument("--mvn-password", dest="mvn_password", help="MVN password",
-                            default=os.getenv("MVN_PASSWORD"))
+                            default=vault_api.load_secret("MVN_PASSWORD"))
         parser.add_argument("--mvn-upload-repo", dest="mvn_upload_repo", help="MVN repository to upload to",
-                            default=os.getenv("MVN_UPLOAD_REPO") or "\x63\x64\x74.wa\x79\x34")
+                            default=vault_api.load_secret("MVN_UPLOAD_REPO") or "\x63\x64\x74.wa\x79\x34")
         parser.add_argument("--mvn-download-repo", dest="mvn_download_repo", help="MVN repository to download from",
-                            default=os.getenv("MVN_DOWNLOAD_REPO") or "maven-virtual")
+                            default=vault_api.load_secret("MVN_DOWNLOAD_REPO") or "maven-virtual")
 
         # DMS arguments
         parser.add_argument("--dms-api-version", dest="dms_api_version", type=int,
                             help="DMS REST API version to use", default=3, choices=[2,3])
         parser.add_argument("--dms-crs-url", dest="dms_crs_url", type=str,
                             help="DMS Component Registry URL (necessary for DMS API v2)",
-                            default=os.getenv("DMS_CRS_URL"))
+                            default=vault_api.load_secret("DMS_CRS_URL"))
         parser.add_argument("--dms-token", dest="dms_token", type=str, help="DMS authorization token",
-                            default=os.getenv("DMS_TOKEN"))
+                            default=vault_api.load_secret("DMS_TOKEN"))
         parser.add_argument("--dms-url", dest="dms_url", help="DMS URL",
-                            default=os.getenv("DMS_URL"))
+                            default=vault_api.load_secret("DMS_URL"))
         parser.add_argument("--dms-user", dest="dms_user", help="DMS user",
-                            default=os.getenv("DMS_USER"))
+                            default=vault_api.load_secret("DMS_USER"))
         parser.add_argument("--dms-password", dest="dms_password", help="DMS password",
-                            default=os.getenv("DMS_PASSWORD"))
+                            default=vault_api.load_secret("DMS_PASSWORD"))
         parser.add_argument("--pg-url", dest="pg_url", help="PG URL",
-                            default=os.getenv("PG_URL"))
+                            default=vault_api.load_secret("PG_URL"))
         parser.add_argument("--pg-user", dest="pg_user", help="PG user",
-                            default=os.getenv("PG_USER"))
+                            default=vault_api.load_secret("PG_USER"))
         parser.add_argument("--pg-password", dest="pg_password", help="PG password",
-                            default=os.getenv("PG_PASSWORD"))
+                            default=vault_api.load_secret("PG_PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)
@@ -593,7 +595,7 @@ class DmsMirror:
         parser.add_argument("--ci-type-documentation", dest="ci_type_documentation",
                             help="CI Type for Documentation artifacts", default="DOCS")
         parser.add_argument("--auto-register-component", dest="auto_register_component",
-                            help="Auto registration for new component", default=os.getenv("AUTO_REGISTRATION", False))
+                            help="Auto registration for new component", default=vault_api.load_secret("AUTO_REGISTRATION", False))
         return parser
 
     def setup_from_args(self, args):

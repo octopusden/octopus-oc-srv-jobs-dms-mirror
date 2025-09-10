@@ -651,13 +651,17 @@ class DmsMirror:
         return _exceptions
 
     def main(self):
+        logging.basicConfig(
+            format="%(pathname)s: %(asctime)-15s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s",
+            level=20,
+            force=True
+        )
+
         _parser = self.basic_args()
         _args = _parser.parse_args()
 
         if hasattr(_args, "log_level"):
-            logging.basicConfig(
-                    format="%(pathname)s: %(asctime)-15s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s",
-                    level=_args.log_level)
+            logging.getLogger().setLevel(_args.log_level)
             logging.info(self.__log_msg(f"Logging level is set to {_args.log_level}"))
 
         self.setup_from_args(_args)

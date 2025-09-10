@@ -653,8 +653,7 @@ class DmsMirror:
     def main(self):
         logging.basicConfig(
             format="%(pathname)s: %(asctime)-15s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s",
-            level=20,
-            force=True
+            level=20
         )
 
         _parser = self.basic_args()

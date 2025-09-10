@@ -577,11 +577,11 @@ class DmsMirror:
         parser.add_argument("--dms-password", dest="dms_password", help="DMS password",
                             default=vault_api.load_secret("DMS_PASSWORD"))
         parser.add_argument("--pg-url", dest="pg_url", help="PG URL",
-                            default=vault_api.load_secret("PG_URL"))
+                            default=vault_api.load_secret("PSQL_URL"))
         parser.add_argument("--pg-user", dest="pg_user", help="PG user",
-                            default=vault_api.load_secret("PG_USER"))
+                            default=vault_api.load_secret("PSQL_USER"))
         parser.add_argument("--pg-password", dest="pg_password", help="PG password",
-                            default=vault_api.load_secret("PG_PASSWORD"))
+                            default=vault_api.load_secret("PSQL_PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)
@@ -651,13 +651,17 @@ class DmsMirror:
         return _exceptions
 
     def main(self):
+        logging.basicConfig(
+            format="%(pathname)s: %(asctime)-15s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s",
+            level=20,
+            force=True
+        )
+
         _parser = self.basic_args()
         _args = _parser.parse_args()
 
         if hasattr(_args, "log_level"):
-            logging.basicConfig(
-                    format="%(pathname)s: %(asctime)-15s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s",
-                    level=_args.log_level)
+            logging.getLogger().setLevel(_args.log_level)
             logging.info(self.__log_msg(f"Logging level is set to {_args.log_level}"))
 
         self.setup_from_args(_args)

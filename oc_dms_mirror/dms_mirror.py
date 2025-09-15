@@ -120,6 +120,7 @@ class DmsMirror:
                                  download_repo=self._args.mvn_download_repo)
 
     def _get_queue_client(self):
+        # Set AMQP Credentials to be taken from VaultAPI
         _q = ChecksumsQueueClient()
         _q.setup_from_args(self._args)
         _q.connect()
@@ -562,6 +563,14 @@ class DmsMirror:
         parser.add_argument("--mvn-download-repo", dest="mvn_download_repo", help="MVN repository to download from",
                             default=vault_api.load_secret("MVN_DOWNLOAD_REPO") or "maven-virtual")
 
+        # AMQP arguments
+        parser.add_argument('--amqp-username', '-l',
+                            help='Queue server connection username', default=vault_api.load_secret('AMQP_USER'))
+        parser.add_argument('--amqp-password',
+                            help='Queue server connection password', default=vault_api.load_secret('AMQP_PASSWORD'))
+        parser.add_argument('--amqp-url', '-u',
+                            help='Queue server url in form: amqp://user:pass@host:port/<vhost>[?params]',
+                            default=vault_api.load_secret('AMQP_URL', 'amqp://guest:guest@localhost/'))
         # DMS arguments
         parser.add_argument("--dms-api-version", dest="dms_api_version", type=int,
                             help="DMS REST API version to use", default=3, choices=[2,3])

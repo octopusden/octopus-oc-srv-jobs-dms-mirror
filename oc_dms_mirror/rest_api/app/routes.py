@@ -1,9 +1,14 @@
 import json
+
+import structlog
 from flask import Response, request, current_app
+from oc_logging import setup_json_logging
+
 from . import dms_mirror_bp
 from oc_dms_mirror.dms_mirror import DmsMirror
-import logging
 
+setup_json_logging()
+logger = structlog.get_logger()
 
 def get_dms_mirror():
     _dmsMirror = DmsMirror()
@@ -33,11 +38,11 @@ def register_component_version_artifact():
     """
     Endpoint performing component/version sync with DMS on demand.
     """
-    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
+    logger.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
     try:
         get_dms_mirror().process_component_webhook(request.get_json())
     except Exception as _e:
-        logging.exception(_e)
+        logger.exception(_e)
         return response_json(400, {"result": str(_e)})
 
     return response_json(200, {"result": "Success"})
@@ -47,7 +52,7 @@ def generate_gav():
     """
     Endpoint for getting or generating GAV Template.
     """
-    logging.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
+    logger.info(f"POST {request.url_rule.rule} from [{request.remote_addr}] with payload: {request.get_json()}")
     try:
         component = request.json.get('componentId')
         if not component:
@@ -57,7 +62,7 @@ def generate_gav():
         if not gav_template:
             return response_json(404, {"result": f"gav template for component {component} not found"})
     except Exception as _e:
-        logging.exception(_e)
+        logger.exception(_e)
         return response_json(400, {"result": str(_e)})
 
     return response_json(200, gav_template)

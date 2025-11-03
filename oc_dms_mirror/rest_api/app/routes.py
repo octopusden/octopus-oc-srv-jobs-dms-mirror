@@ -31,7 +31,7 @@ class DmsMirrorBlueprint:
     def get_dms_mirror(self):
         dms_mirror = DmsMirror()
         dms_mirror.setup_from_args(current_app.args)
-        # dms_mirror.load_config()
+        dms_mirror.load_config()
         return dms_mirror
 
     def response_json(self, code, data):
@@ -57,7 +57,7 @@ class DmsMirrorBlueprint:
         try:
             self.dms_mirror.process_component_webhook(request.get_json())
         except Exception as _e:
-            self.logger.exception(_e)
+            self.logger.error(str(_e))
             return self.response_json(400, {"result": str(_e)})
 
         return self.response_json(200, {"result": "Success"})
@@ -76,7 +76,7 @@ class DmsMirrorBlueprint:
             if not gav_template:
                 return self.response_json(404, {"result": f"gav template for component {component} not found"})
         except Exception as _e:
-            self.logger.exception(_e)
+            self.logger.error(str(_e))
             return self.response_json(400, {"result": str(_e)})
 
         return self.response_json(200, gav_template)

@@ -1,10 +1,10 @@
 from flask import Flask, Blueprint
 
-from .routes import *
+from .routes import DmsMirrorBlueprint
 
 def register_blueprint_controller(app):
-    dms_mirror_bluprint = DmsMirrorBlueprint()
-    app.register_blueprint(dms_mirror_bluprint.get_blueprint())
+    dms_mirror_blueprint = DmsMirrorBlueprint()
+    app.register_blueprint(dms_mirror_blueprint.get_blueprint())
 
 def create_app(config_class, args):
     app = Flask(__name__)

@@ -20,7 +20,7 @@ class RestApiTestSuite(unittest.TestCase):
             self.test_client = app.test_client()
 
     def test_register_component_version_artifact_ok(self):
-        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.DmsMirrorBlueprint.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
             _dmsMirror.process_component_webhook = unittest.mock.MagicMock()
             _get_dms_mirror.return_value = _dmsMirror
@@ -39,7 +39,7 @@ class RestApiTestSuite(unittest.TestCase):
             _dmsMirror.process_component_webhook.assert_called_once_with(data)
 
     def test_register_component_version_artifact_fail(self):
-        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.DmsMirrorBlueprint.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
             _dmsMirror.process_component_webhook = unittest.mock.MagicMock(side_effect=Exception('processing failed'))
             _get_dms_mirror.return_value = _dmsMirror
@@ -58,7 +58,7 @@ class RestApiTestSuite(unittest.TestCase):
             _dmsMirror.process_component_webhook.assert_called_once_with(data)
 
     def test_get_gav_ok(self):
-        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.DmsMirrorBlueprint.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
             _dmsMirror.get_dms_mirror = unittest.mock.MagicMock()
 
@@ -89,7 +89,7 @@ class RestApiTestSuite(unittest.TestCase):
             _dmsMirror.get_component_config.assert_called_once_with("test-component")
 
     def test_generate_gav_without_component(self):
-        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.get_dms_mirror') as _get_dms_mirror:
+        with unittest.mock.patch('oc_dms_mirror.rest_api.app.routes.DmsMirrorBlueprint.get_dms_mirror') as _get_dms_mirror:
             _dmsMirror = unittest.mock.MagicMock()
             _dmsMirror.get_dms_mirror = unittest.mock.MagicMock()
 

@@ -144,8 +144,9 @@ class DmsMirror:
             self.logger.error(self.__log_msg(_err_msg))
             raise Exception(_err_msg)
 
-        component = payload.get('componentVersion').get('component')
-        version = payload.get('componentVersion').get('version')
+        component_data = payload.get('componentVersion', {}).get('component')
+        component = component_data.get('component')
+        version = component_data.get('version')
         if self._args.auto_register_component:
             self.register_component(payload)
 

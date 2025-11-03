@@ -85,6 +85,7 @@ class DmsMirrorBlueprint:
         """
         Simple healthcheck endpoint.
         """
+        self.logger.debug(f"GET {request.url_rule.rule} - OK")
         return self.response_json(200, {"status": "ok"})
 
     def get_blueprint(self):

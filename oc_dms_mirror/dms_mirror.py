@@ -145,8 +145,14 @@ class DmsMirror:
             raise Exception(_err_msg)
 
         component_data = payload.get('componentVersion', {})
+        if not component_data or not isinstance(component_data, dict):
+            raise ValueError("Missing or invalid componentVersion in payload")
+
         component = component_data.get('component')
         version = component_data.get('version')
+        if not component or not version:
+            raise ValueError(f"Missing required fields: component={component}, version={version}")
+
         if self._args.auto_register_component:
             self.register_component(payload)
 

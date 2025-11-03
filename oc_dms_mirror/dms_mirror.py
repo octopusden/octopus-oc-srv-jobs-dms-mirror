@@ -137,15 +137,15 @@ class DmsMirror:
         :param str payload: Webhook payload
         :return: 'None' on success, raised exception on failure
         """
-        component = payload.get('componentVersion').get('component')
-        version = payload.get('componentVersion').get('version')
         event_type = payload.get('type')
 
         if event_type != self.DmsEventType.PUBLISH_COMPONENT_VERSION.value:
-            _err_msg = f"Skipping {component} since event type not 'PUBLISH_COMPONENT_VERSION'"
+            _err_msg = f"Event type is {event_type}, skipping"
             self.logger.error(self.__log_msg(_err_msg))
             raise Exception(_err_msg)
 
+        component = payload.get('componentVersion').get('component')
+        version = payload.get('componentVersion').get('version')
         if self._args.auto_register_component:
             self.register_component(payload)
 

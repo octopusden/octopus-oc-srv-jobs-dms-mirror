@@ -16,7 +16,7 @@ from oc_checksumsq.checksums_interface import ChecksumsQueueClient
 from oc_checksumsq.checksums_interface import FileLocation
 from string import Template
 
-from oc_cdtapi import NexusAPI, DmsAPI, PgAPI, VaultAPI
+from oc_cdtapi import NexusAPI, DmsAPI, PgAPI, PgQAPI, VaultAPI
 
 from oc_cdtapi.API import HttpAPIError
 from oc_logging import setup_json_logging
@@ -34,6 +34,7 @@ class DmsMirror:
         self._dms_client = None
         self._mvn_client = None
         self._pg_client = None
+        self._psql_mq_client = None
         self._queue_client = None
         self.__process_name = "?"
 
@@ -73,6 +74,13 @@ class DmsMirror:
 
         return self._pg_client
 
+    @property
+    def pql_mq_client(self):
+        if not self._pql_mq_client:
+            self._psql_mq_client = self._get_psql_mq_client()
+
+        return self._pgq_client
+
     def _get_pg_client(self):
         """
         Return PgAPI instance basing on version specified
@@ -85,6 +93,20 @@ class DmsMirror:
                 auth=self._args.pg_password)
 
         return _pg_client
+
+    def _get_pql_mq_client(self):
+        """
+        Return PgQAPI instance 
+        :return PgQAPI.PgQAPI:
+        """
+        self.logger.debug(self.__log_msg("reached _get_psql_mq_client"))
+        self.logger.debug(self.__log_msg("trying to connect to %s" % self._args.psql_mq_url))
+        _psql_mq_client = PgQAPI.PgQAPI(
+                url=self._args.psql_mq_url,
+                username=self._args.psql_mq_user,
+                password=self._args.psql_mq_password)
+
+        return _psql_mq_client
 
     def _get_dms_client(self):
         """
@@ -601,6 +623,12 @@ class DmsMirror:
                             default=vault_api.load_secret("PG_USER"))
         parser.add_argument("--pg-password", dest="pg_password", help="PG password",
                             default=vault_api.load_secret("PG_PASSWORD"))
+        parser.add_argument("--psql-mq-url", dest="psql_mq_url", help="PSQL MQ URL",
+                            default=vault_api.load_secret("PSQL_MQ_URL"))
+        parser.add_argument("--psql-mq-user", dest="psql_mq_user", help="PSQL MQ user",
+                            default=vault_api.load_secret("PGQ_USER"))
+        parser.add_argument("--psql-mq-password", dest="psql_mq_password", help="PSQL MQ password",
+                            default=vault_api.load_secret("PQL_MQ_PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)

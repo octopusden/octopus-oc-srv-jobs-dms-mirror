@@ -626,9 +626,9 @@ class DmsMirror:
         parser.add_argument("--psql-mq-url", dest="psql_mq_url", help="PSQL MQ URL",
                             default=vault_api.load_secret("PSQL_MQ_URL"))
         parser.add_argument("--psql-mq-user", dest="psql_mq_user", help="PSQL MQ user",
-                            default=vault_api.load_secret("PGQ_USER"))
+                            default=vault_api.load_secret("PSQL_MQ_USER"))
         parser.add_argument("--psql-mq-password", dest="psql_mq_password", help="PSQL MQ password",
-                            default=vault_api.load_secret("PQL_MQ_PASSWORD"))
+                            default=vault_api.load_secret("PSQL_MQ_PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)

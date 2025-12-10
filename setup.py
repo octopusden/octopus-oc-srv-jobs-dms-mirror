@@ -2,7 +2,7 @@
 
 from setuptools import setup
 
-__version = "3.1.2"
+__version = "3.1.3"
 
 setup(
     name="oc-dms-mirror",
@@ -13,7 +13,7 @@ setup(
     install_requires=[
         "oc-cdtapi >= 3.29.1",
         "oc-checksumsq >= 10.0.3",
-        "flask==2.2.5",
+        "flask",
         "gunicorn==23.0.0",
         "oc_logging==1.1.7"
     ],

@@ -33,7 +33,11 @@ class DmsMirrorTestBase(unittest.TestCase):
                 'DMS_URL': 'https://dms.example.com',
                 'DMS_USER': 'test_dms_user',
                 'DMS_PASSWORD': 'test_dms_password',
-                'DMS_TOKEN': 'test_dms_token'}
+                'DMS_TOKEN': 'test_dms_token',
+                'PSQL_MQ_URL': 'https://psql.example.com',
+                'PSQL_MQ_USER': 'test_psql_mq_user',
+                'PSQL_MQ_PASSWORD': 'test_psql_mq_password',
+        }
 
         self.args = unittest.mock.MagicMock()
         self.args.amqp_url = self.env.get('AMQP_URL')
@@ -50,11 +54,15 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.dms_url = self.env.get('DMS_URL')
         self.args.dms_user = self.env.get('DMS_USER')
         self.args.dms_password = self.env.get('DMS_PASSWORD')
+        self.args.psql_mq_url = self.env.get('PSQL_MQ_URL')
+        self.args.psql_mq_user = self.env.get('PSQL_MQ_USER')
+        self.args.psql_mq_password = self.env.get('PSQL_MQ_PASSWORD')
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
         self.args.always_enqueue = False
         self.dmsmirror = DmsMirror()
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
+        self.dmsmirror._psql_mq_client = unittest.mock.MagicMock()
         self.dmsmirror._mvn_client = unittest.mock.MagicMock()
 
 class DmsMirrorInitTestSuite(DmsMirrorTestBase):
@@ -380,12 +388,23 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         _tgt_gav = f"{self.args.mvn_prefix}.target:artifact:1:pkg"
         _ci_type = "CITYPE"
 
+        mock_message = ["register_file", [[_tgt_gav, "NXS", None], _ci_type, 0], {}]
+        self.dmsmirror._psql_mq_client.compose_message.return_value = mock_message
+
         self.dmsmirror._register_artifact(_tgt_gav, _ci_type)
 
         self.dmsmirror._queue_client.connect.assert_called_once()
         self.dmsmirror._queue_client.register_file.assert_called_once_with(
                 FileLocation(_tgt_gav, "NXS", None), _ci_type, 0)
         self.dmsmirror._queue_client.disconnect.assert_called_once()
+
+        mock_params = {
+            "location": FileLocation(_tgt_gav, "NXS", None),
+            "citype": _ci_type,
+            "depth": 0
+        }
+        self.dmsmirror._psql_mq_client.compose_message.assert_called_once_with("register_file", mock_params)
+        self.dmsmirror._psql_mq_client.enqueue_message.assert_called_once_with("cdt.dlartifacts.input", mock_message)
 
     def test_get_static_ci_type(self):
         self.assertEqual(self.dmsmirror._get_static_ci_type("documentation"), self.args.ci_type_documentation)

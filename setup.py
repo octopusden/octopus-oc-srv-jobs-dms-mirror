@@ -11,11 +11,11 @@ setup(
     long_description="Tool for mirroring DMS artifacts",
     long_description_content_type="text/plain",
     install_requires=[
-        "oc-cdtapi >= 3.27.2",
+        "oc-cdtapi >= 3.29.1",
         "oc-checksumsq >= 10.0.3",
-        "flask",
-        "gunicorn",
-        "oc_logging"
+        "flask==3.1.2",
+        "gunicorn==23.0.0",
+        "oc_logging==1.1.7"
     ],
     packages=[
         "oc_dms_mirror",

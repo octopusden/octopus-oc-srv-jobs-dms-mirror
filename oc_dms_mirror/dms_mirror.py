@@ -75,11 +75,11 @@ class DmsMirror:
         return self._pg_client
 
     @property
-    def pql_mq_client(self):
-        if not self._pql_mq_client:
+    def psql_mq_client(self):
+        if not self._psql_mq_client:
             self._psql_mq_client = self._get_psql_mq_client()
 
-        return self._pgq_client
+        return self._psql_mq_client
 
     def _get_pg_client(self):
         """
@@ -94,7 +94,7 @@ class DmsMirror:
 
         return _pg_client
 
-    def _get_pql_mq_client(self):
+    def _get_psql_mq_client(self):
         """
         Return PgQAPI instance 
         :return PgQAPI.PgQAPI:
@@ -426,6 +426,7 @@ class DmsMirror:
                 self.logger.info(self.__log_msg("Always enqueue parameter set, registering"))
                 _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
                 self._register_artifact(_tgt_gav, _ci_type)
+                self._register_artifact_psql(_tgt_gav, _ci_type)
             return
 
         _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
@@ -486,11 +487,24 @@ class DmsMirror:
         :param str tgt_gav: target gav
         :param str ci_type: ci_type
         """
+        # Send to RabbitMQ
+        self.logger.info(self.__log_msg(f"About to send queue to mq"))
         self.queue_client.connect()
         _location = FileLocation(tgt_gav, "NXS", None)
         resp = self.queue_client.register_file(_location, ci_type, 0)
         self.logger.debug(self.__log_msg(f"Register response: [{resp}]"))
         self.queue_client.disconnect()
+
+        # Send to PSQL MQ
+        self.logger.info(self.__log_msg(f"About to send queue to psql"))
+        params = {
+            "location": _location,
+            "citype": ci_type,
+            "depth": 0
+        }
+        message = self.psql_mq_client.compose_message('register_file', params)
+        self.logger.debug(self.__log_msg('Composed message: [%s]' % message))
+        self.psql_mq_client.enqueue_message('cdt.dlartifacts.input', message)
 
     def _copy_artifact(self, component, version, artifact, tgt_gav):
         """

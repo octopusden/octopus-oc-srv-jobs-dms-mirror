@@ -426,7 +426,6 @@ class DmsMirror:
                 self.logger.info(self.__log_msg("Always enqueue parameter set, registering"))
                 _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]
                 self._register_artifact(_tgt_gav, _ci_type)
-                self._register_artifact_psql(_tgt_gav, _ci_type)
             return
 
         _ci_type = self._get_static_ci_type(_artifact_type) or _params["ci_type"]

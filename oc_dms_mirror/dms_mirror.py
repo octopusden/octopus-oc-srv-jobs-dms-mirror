@@ -186,7 +186,7 @@ class DmsMirror:
     def register_component(self, payload):
         component_id = payload.get("componentVersion").get("component")
         component_name = payload.get("componentVersion").get("displayName")
-        component_labels = payload.get("componentVersion").get("labels")
+        component_labels = payload.get("componentVersion").get("labels", [])
 
         # Component only deliverable if the labels non-deliverable not in component labels
         is_deliverable = False if "non-deliverable" in component_labels else True

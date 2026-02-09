@@ -45,7 +45,7 @@ class DmsMirrorTestBase(unittest.TestCase):
             "ci_type": "$component",
             "tgtGavTemplate": {
                 "notes": "$prefix.ext.release_notes:$component\\$c_hyphen:\\$v:\\$p",
-                "distribution": "$prefix.way4.$client.$component:\\$n\\$c_hyphen:\\$v:\\$p",
+                "distribution": "$prefix.$client.$component:\\$n\\$c_hyphen:\\$v:\\$p",
                 "report": "$prefix.ext.release_notes:$component\\$c_hyphen:\\$v:\\$p",
                 "documentation": "$prefix.ext.documentation:$component\\$c_hyphen:\\$v:\\$p"
             }

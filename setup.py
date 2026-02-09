@@ -2,7 +2,7 @@
 
 from setuptools import setup
 
-__version = "3.2.0"
+__version = "3.3.0"
 
 setup(
     name="oc-dms-mirror",
@@ -11,7 +11,7 @@ setup(
     long_description="Tool for mirroring DMS artifacts",
     long_description_content_type="text/plain",
     install_requires=[
-        "oc-cdtapi >= 3.29.1",
+        "oc-cdtapi >= 3.33.7",
         "oc-checksumsq >= 10.0.3",
         "flask",
         "gunicorn==23.0.0",

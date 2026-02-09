@@ -921,7 +921,7 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
 
     def test_register_component__no_gav_template(self):
         self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
-            return_value=Mock(status_code=200)
+            return_value=Mock(status_code=404)
         )
         self.dmsmirror.pg_client.post_new_component = Mock(
             return_value=Mock(status_code=201)

@@ -6,8 +6,10 @@ import json
 
 import unittest
 import unittest.mock
+from unittest.mock import Mock, call
 from ..dms_mirror import DmsMirror
 from oc_cdtapi.DmsAPI import DmsAPI, DmsAPIv3
+from oc_cdtapi.API import HttpAPIError
 from string import Template
 import re
 from oc_checksumsq.checksums_interface import FileLocation
@@ -39,12 +41,23 @@ class DmsMirrorTestBase(unittest.TestCase):
                 'PSQL_MQ_PASSWORD': 'test_psql_mq_password',
         }
 
+        self.gav_template = {
+            "ci_type": "$component",
+            "tgtGavTemplate": {
+                "notes": "$prefix.ext.release_notes:$component\\$c_hyphen:\\$v:\\$p",
+                "distribution": "$prefix.$client.$component:\\$n\\$c_hyphen:\\$v:\\$p",
+                "report": "$prefix.ext.release_notes:$component\\$c_hyphen:\\$v:\\$p",
+                "documentation": "$prefix.ext.documentation:$component\\$c_hyphen:\\$v:\\$p"
+            }
+        }
+
+
         self.args = unittest.mock.MagicMock()
         self.args.amqp_url = self.env.get('AMQP_URL')
         self.args.amqp_username = self.env.get('AMQP_USER')
         self.args.amqp_password = self.env.get('AMQP_PASSWORD')
         self.args.config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resources', 'config.json')
-        self.args.gav_template_config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resources', 'gav_template_config_file.json')
+        self.args.gav_template_config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'resources', 'config.json')
         self.args.mvn_prefix = self.env.get('MVN_PREFIX')
         self.args.mvn_url = self.env.get('MVN_URL')
         self.args.mvn_user = self.env.get('MVN_USER')
@@ -64,6 +77,8 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
         self.dmsmirror._psql_mq_client = unittest.mock.MagicMock()
         self.dmsmirror._mvn_client = unittest.mock.MagicMock()
+        self.dmsmirror._gav_template = self.gav_template
+
 
 class DmsMirrorInitTestSuite(DmsMirrorTestBase):
     def test_init(self):
@@ -663,3 +678,306 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.dmsmirror._mvn_client.cat.assert_not_called()
         self.dmsmirror._mvn_client.upload.assert_called_once_with(
                 _tgt_gav, repo=self.args.mvn_upload_repo, data=unittest.mock.ANY, pom=True)
+        
+    def test_process_component_webhook__ok(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror.register_component = unittest.mock.MagicMock(return_value=None)
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.process_component_webhook(payload=payload)
+        
+        self.dmsmirror.register_component.assert_called_once_with(payload)
+        
+        self.assertEqual(self.dmsmirror.process_artifact.call_count, 2)
+        
+        expected_calls = [
+            call({'artifactId': 'artifact-1'}, 'test-component', '1.0.0'),
+            call({'artifactId': 'artifact-2'}, 'test-component', '1.0.0')
+        ]
+        self.dmsmirror.process_artifact.assert_has_calls(expected_calls)
+
+    def test_process_component_webhook__wrong_event_type(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': 'SOME_OTHER_EVENT',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0'
+            },
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        with self.assertRaises(Exception) as ctx:
+            self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.assertIn("Event type is SOME_OTHER_EVENT", str(ctx.exception))
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_not_called()
+
+    def test_process_component_webhook__missing_component_version(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': self.dmsmirror.DmsEventType.PUBLISH_COMPONENT_VERSION.value,
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.assertIn("Missing or invalid componentVersion", str(ctx.exception))
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_not_called()
+
+    def test_process_component_webhook__component_version_not_dict(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': self.dmsmirror.DmsEventType.PUBLISH_COMPONENT_VERSION.value,
+            'componentVersion': "invalid",
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        with self.assertRaises(ValueError):
+            self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_not_called()
+
+    def test_process_component_webhook__missing_component(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': self.dmsmirror.DmsEventType.PUBLISH_COMPONENT_VERSION.value,
+            'componentVersion': {
+                'version': '1.0.0'
+            },
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        with self.assertRaises(ValueError) as ctx:
+            self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.assertIn("Missing required fields", str(ctx.exception))
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_not_called()
+
+    def test_process_component_webhook__missing_version(self):
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': self.dmsmirror.DmsEventType.PUBLISH_COMPONENT_VERSION.value,
+            'componentVersion': {
+                'component': 'test-component'
+            },
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        with self.assertRaises(ValueError):
+            self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_not_called()
+
+    def test_process_component_webhook__auto_register_disabled(self):
+        self.dmsmirror._args.auto_register_component = False
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.register_component = unittest.mock.MagicMock()
+
+        payload = {
+            'type': self.dmsmirror.DmsEventType.PUBLISH_COMPONENT_VERSION.value,
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0'
+            },
+            'artifacts': [{'artifactId': 'artifact-1'}]
+        }
+
+        self.dmsmirror.process_component_webhook(payload=payload)
+
+        self.dmsmirror.register_component.assert_not_called()
+        self.dmsmirror.process_artifact.assert_called_once()
+
+    def test_register_component__ok(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["name"], "Test Component")
+        self.assertEqual(register_payload["is_standard"], "Y")
+        self.assertEqual(register_payload["is_deliverable"], True)
+        self.assertEqual(register_payload["dms_id"], "test-component")
+
+    def test_register_component__non_deliverable(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': ["non-deliverable"],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["name"], "Test Component")
+        self.assertEqual(register_payload["is_standard"], "Y")
+        self.assertEqual(register_payload["is_deliverable"], False)
+        self.assertEqual(register_payload["dms_id"], "test-component")
+
+    # For backward compability
+    def test_register_component__no_labels(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["name"], "Test Component")
+        self.assertEqual(register_payload["is_standard"], "Y")
+        self.assertEqual(register_payload["is_deliverable"], False)
+        self.assertEqual(register_payload["dms_id"], "test-component")
+
+    def test_register_component__component_registered(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value=Mock(status_code=200)
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_register_component__no_gav_template(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value=Mock(status_code=404)
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+        self.dmsmirror._gav_template = None
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()

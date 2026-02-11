@@ -88,9 +88,9 @@ class DmsMirror:
         """
 
         _pg_client = PgAPI.PostgresAPI(
-                root=self._args.pg_url,
-                user=self._args.pg_user,
-                auth=self._args.pg_password)
+                root=self._args.psql_api_url,
+                user=self._args.psql_api_user,
+                auth=self._args.psql_api_password)
 
         return _pg_client
 
@@ -186,6 +186,10 @@ class DmsMirror:
     def register_component(self, payload):
         component_id = payload.get("componentVersion").get("component")
         component_name = payload.get("componentVersion").get("displayName")
+        component_labels = payload.get("componentVersion").get("labels", ['non-deliverable'])
+
+        # Component only deliverable if the labels non-deliverable not in component labels
+        is_deliverable = False if "non-deliverable" in component_labels else True
 
         if self.is_component_registered(component_id):
             self.logger.info(f"Component with id [{component_id}] already registered, skipping")
@@ -201,8 +205,8 @@ class DmsMirror:
             "ci_type_group_id": component_id,
             "name": component_name,
             "is_standard": "N" if client else "Y",
-            "is_deliverable": False,
-            "regexp": self.generate_ci_regexp(component_id, client),
+            "is_deliverable": is_deliverable,
+            "regexp": ciregexp,
             "loc_type_id": "NXS",
             "dms_id": component_id,
             "doc_artifactid": component_id,
@@ -598,11 +602,11 @@ class DmsMirror:
         parser.add_argument("--mvn-prefix", dest="mvn_prefix", type=str, help="MVN GroupId prefix for destination",
                             default=vault_api.load_secret("MVN_PREFIX") or "com.example")
         parser.add_argument("--mvn-url", dest="mvn_url", help="MVN URL",
-                            default=vault_api.load_secret("MVN_URL"))
+                            default=vault_api.load_secret("MVN__URL"))
         parser.add_argument("--mvn-user", dest="mvn_user", help="MVN user",
-                            default=vault_api.load_secret("MVN_USER"))
+                            default=vault_api.load_secret("MVN__USER"))
         parser.add_argument("--mvn-password", dest="mvn_password", help="MVN password",
-                            default=vault_api.load_secret("MVN_PASSWORD"))
+                            default=vault_api.load_secret("MVN__PASSWORD"))
         parser.add_argument("--mvn-upload-repo", dest="mvn_upload_repo", help="MVN repository to upload to",
                             default=vault_api.load_secret("MVN_UPLOAD_REPO") or "\x63\x64\x74.wa\x79\x34")
         parser.add_argument("--mvn-download-repo", dest="mvn_download_repo", help="MVN repository to download from",
@@ -610,12 +614,12 @@ class DmsMirror:
 
         # AMQP arguments
         parser.add_argument('--amqp-username', '-l',
-                            help='Queue server connection username', default=vault_api.load_secret('AMQP_USER'))
+                            help='Queue server connection username', default=vault_api.load_secret('AMQP__USER'))
         parser.add_argument('--amqp-password',
-                            help='Queue server connection password', default=vault_api.load_secret('AMQP_PASSWORD'))
+                            help='Queue server connection password', default=vault_api.load_secret('AMQP__PASSWORD'))
         parser.add_argument('--amqp-url', '-u',
                             help='Queue server url in form: amqp://user:pass@host:port/<vhost>[?params]',
-                            default=vault_api.load_secret('AMQP_URL', 'amqp://guest:guest@localhost/'))
+                            default=vault_api.load_secret('AMQP__URL', 'amqp://guest:guest@localhost/'))
         # DMS arguments
         parser.add_argument("--dms-api-version", dest="dms_api_version", type=int,
                             help="DMS REST API version to use", default=3, choices=[2,3])
@@ -623,25 +627,25 @@ class DmsMirror:
                             help="DMS Component Registry URL (necessary for DMS API v2)",
                             default=vault_api.load_secret("DMS_CRS_URL"))
         parser.add_argument("--dms-token", dest="dms_token", type=str, help="DMS authorization token",
-                            default=vault_api.load_secret("DMS_TOKEN"))
+                            default=vault_api.load_secret("DMS__TOKEN"))
         parser.add_argument("--dms-url", dest="dms_url", help="DMS URL",
-                            default=vault_api.load_secret("DMS_URL"))
+                            default=vault_api.load_secret("DMS__URL"))
         parser.add_argument("--dms-user", dest="dms_user", help="DMS user",
-                            default=vault_api.load_secret("DMS_USER"))
+                            default=vault_api.load_secret("DMS__USER"))
         parser.add_argument("--dms-password", dest="dms_password", help="DMS password",
-                            default=vault_api.load_secret("DMS_PASSWORD"))
-        parser.add_argument("--pg-url", dest="pg_url", help="PG URL",
-                            default=vault_api.load_secret("PG_URL"))
-        parser.add_argument("--pg-user", dest="pg_user", help="PG user",
-                            default=vault_api.load_secret("PG_USER"))
-        parser.add_argument("--pg-password", dest="pg_password", help="PG password",
-                            default=vault_api.load_secret("PG_PASSWORD"))
+                            default=vault_api.load_secret("DMS__PASSWORD"))
+        parser.add_argument("--pg-url", dest="psql_api_url", help="PSQL API URL",
+                            default=vault_api.load_secret("PSQL_API__URL"))
+        parser.add_argument("--pg-user", dest="psql_api_user", help="PSQL API user",
+                            default=vault_api.load_secret("PSQL_API__USER"))
+        parser.add_argument("--pg-password", dest="psql_api_password", help="PSQL API password",
+                            default=vault_api.load_secret("PSQL_API__PASSWORD"))
         parser.add_argument("--psql-mq-url", dest="psql_mq_url", help="PSQL MQ URL",
-                            default=vault_api.load_secret("PSQL_MQ_URL"))
+                            default=vault_api.load_secret("PSQL_MQ__URL"))
         parser.add_argument("--psql-mq-user", dest="psql_mq_user", help="PSQL MQ user",
-                            default=vault_api.load_secret("PSQL_MQ_USER"))
+                            default=vault_api.load_secret("PSQL_MQ__USER"))
         parser.add_argument("--psql-mq-password", dest="psql_mq_password", help="PSQL MQ password",
-                            default=vault_api.load_secret("PSQL_MQ_PASSWORD"))
+                            default=vault_api.load_secret("PSQL_MQ__PASSWORD"))
         parser.add_argument("--dms-processes", dest="dms_processes", 
                             help="Processes (threads) to run in parallel",
                             type=int, default=3)

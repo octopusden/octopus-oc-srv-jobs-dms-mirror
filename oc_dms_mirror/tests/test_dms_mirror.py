@@ -891,6 +891,41 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.assertEqual(register_payload["is_deliverable"], False)
         self.assertEqual(register_payload["dms_id"], "test-component")
 
+    # For backward compability
+    def test_register_component__no_labels(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["name"], "Test Component")
+        self.assertEqual(register_payload["is_standard"], "Y")
+        self.assertEqual(register_payload["is_deliverable"], False)
+        self.assertEqual(register_payload["dms_id"], "test-component")
+
     def test_register_component__component_registered(self):
         self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
             return_value=Mock(status_code=200)

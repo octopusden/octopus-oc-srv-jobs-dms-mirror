@@ -190,6 +190,11 @@ class DmsMirror:
 
         # Component only deliverable if the labels non-deliverable not in component labels
         is_deliverable = False if "non-deliverable" in component_labels else True
+        should_registered = False if "test-component" in component_labels else True
+
+        if not should_registered:
+            self.logger.info(f"Component with id [{component_id}] should not be registered, skipping")
+            return
 
         if self.is_component_registered(component_id):
             self.logger.info(f"Component with id [{component_id}] already registered, skipping")

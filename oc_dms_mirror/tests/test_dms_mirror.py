@@ -954,6 +954,62 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
         self.dmsmirror.pg_client.post_new_component.assert_not_called()
 
+    def test_register_component__component_test(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value=Mock(status_code=200)
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': ['test-component'],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_not_called()
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_register_component__component_test_and_non_deliverable(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value=Mock(status_code=200)
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': ['test-component', 'non-deliverable'],
+                'clientCode': None
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_not_called()
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
     def test_register_component__no_gav_template(self):
         self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
             return_value=Mock(status_code=404)

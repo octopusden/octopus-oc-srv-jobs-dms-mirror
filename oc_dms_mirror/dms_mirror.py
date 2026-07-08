@@ -658,7 +658,7 @@ class DmsMirror:
         parser.add_argument("--always-enqueue", dest="always_enqueue",
                             help="Enqueue if artifact exists",
                             action="store_true", default=False)
-        parser.add_argument("--msg-target", dest="msg_target", help="amqp|db message target", default="amqp")
+        parser.add_argument("--msg-target", dest="msg_target", help="amqp|db message target", default="amqp", choices=["amqp", "db"])
 
         # CITYPE properties
         parser.add_argument("--ci-type-release-notes", dest="ci_type_release_notes",

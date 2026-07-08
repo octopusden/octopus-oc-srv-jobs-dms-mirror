@@ -495,24 +495,25 @@ class DmsMirror:
         :param str tgt_gav: target gav
         :param str ci_type: ci_type
         """
-        # Send to RabbitMQ
-        self.logger.info(self.__log_msg(f"About to send queue to mq"))
-        self.queue_client.connect()
         _location = FileLocation(tgt_gav, "NXS", None)
-        resp = self.queue_client.register_file(_location, ci_type, 0)
-        self.logger.debug(self.__log_msg(f"Register response: [{resp}]"))
-        self.queue_client.disconnect()
-
-        # Send to PSQL MQ
-        self.logger.info(self.__log_msg(f"About to send queue to psql"))
-        params = {
-            "location": _location,
-            "citype": ci_type,
-            "depth": 0
-        }
-        message = self.psql_mq_client.compose_message('register_file', params)
-        self.logger.debug(self.__log_msg('Composed message: [%s]' % message))
-        self.psql_mq_client.enqueue_message('cdt.dlartifacts.input', message)
+        if self._args.msg_target == "amqp":
+            # Send to RabbitMQ
+            self.queue_client.connect()
+            self.logger.info(self.__log_msg(f"About to send queue to mq"))
+            resp = self.queue_client.register_file(_location, ci_type, 0)
+            self.logger.debug(self.__log_msg(f"Register response: [{resp}]"))
+            self.queue_client.disconnect()
+        else:
+            # Send to PSQL MQ
+            self.logger.info(self.__log_msg(f"About to send queue to psql"))
+            params = {
+                "location": _location,
+                "citype": ci_type,
+                "depth": 0
+            }
+            message = self.psql_mq_client.compose_message('register_file', params)
+            self.logger.debug(self.__log_msg('Composed message: [%s]' % message))
+            self.psql_mq_client.enqueue_message('cdt.dlartifacts.input', message)
 
     def _copy_artifact(self, component, version, artifact, tgt_gav):
         """
@@ -657,6 +658,7 @@ class DmsMirror:
         parser.add_argument("--always-enqueue", dest="always_enqueue",
                             help="Enqueue if artifact exists",
                             action="store_true", default=False)
+        parser.add_argument("--msg-target", dest="msg_target", help="amqp|db message target", default="amqp", choices=["amqp", "db"])
 
         # CITYPE properties
         parser.add_argument("--ci-type-release-notes", dest="ci_type_release_notes",

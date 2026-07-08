@@ -70,6 +70,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.psql_mq_url = self.env.get('PSQL_MQ_URL')
         self.args.psql_mq_user = self.env.get('PSQL_MQ_USER')
         self.args.psql_mq_password = self.env.get('PSQL_MQ_PASSWORD')
+        self.args.msg_target = 'amqp'
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
         self.args.always_enqueue = False
@@ -399,7 +400,8 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror._mvn_client.upload.assert_called_once_with(
                 _tgt_gav, repo=self.args.mvn_upload_repo, data=unittest.mock.ANY, pom=True)
 
-    def test_register_artifact(self):
+    def test_register_artifact_amqp(self):
+        self.args.msg_target = 'amqp'
         _tgt_gav = f"{self.args.mvn_prefix}.target:artifact:1:pkg"
         _ci_type = "CITYPE"
 
@@ -412,6 +414,21 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror._queue_client.register_file.assert_called_once_with(
                 FileLocation(_tgt_gav, "NXS", None), _ci_type, 0)
         self.dmsmirror._queue_client.disconnect.assert_called_once()
+
+        mock_params = {
+            "location": FileLocation(_tgt_gav, "NXS", None),
+            "citype": _ci_type,
+            "depth": 0
+        }
+    
+    def test_register_artifact_db(self):
+        _tgt_gav = f"{self.args.mvn_prefix}.target:artifact:1:pkg"
+        _ci_type = "CITYPE"
+        self.args.msg_target='db'
+        mock_message = ["register_file", [[_tgt_gav, "NXS", None], _ci_type, 0], {}]
+        self.dmsmirror._psql_mq_client.compose_message.return_value = mock_message
+
+        self.dmsmirror._register_artifact(_tgt_gav, _ci_type)
 
         mock_params = {
             "location": FileLocation(_tgt_gav, "NXS", None),

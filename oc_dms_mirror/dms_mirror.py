@@ -498,8 +498,8 @@ class DmsMirror:
         _location = FileLocation(tgt_gav, "NXS", None)
         if self._args.msg_target == "amqp":
             # Send to RabbitMQ
-            self.logger.info(self.__log_msg(f"About to send queue to mq"))
             self.queue_client.connect()
+            self.logger.info(self.__log_msg(f"About to send queue to mq"))
             resp = self.queue_client.register_file(_location, ci_type, 0)
             self.logger.debug(self.__log_msg(f"Register response: [{resp}]"))
             self.queue_client.disconnect()

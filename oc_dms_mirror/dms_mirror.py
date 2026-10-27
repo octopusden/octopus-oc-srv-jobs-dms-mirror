@@ -187,6 +187,7 @@ class DmsMirror:
         component_id = payload.get("componentVersion").get("component")
         component_name = payload.get("componentVersion").get("displayName")
         component_labels = payload.get("componentVersion").get("labels", ['non-deliverable'])
+        component_parent_id = payload.get("componentVersion").get("parentComponent")
 
         # Component only deliverable if the labels non-deliverable not in component labels
         is_deliverable = False if "non-deliverable" in component_labels else True
@@ -205,9 +206,11 @@ class DmsMirror:
         ciregexp = self.generate_ci_regexp(component_id, client)
         if not ciregexp:
             return
+
+        ci_type_group_id = self.get_ci_type_group_id(component_id, component_parent_id)
         register_payload = {
             "ci_type_id": component_id,
-            "ci_type_group_id": component_id,
+            "ci_type_group_id": ci_type_group_id,
             "name": component_name,
             "is_standard": "N" if client else "Y",
             "is_deliverable": is_deliverable,
@@ -225,6 +228,25 @@ class DmsMirror:
         except HttpAPIError as e:
             self.logger.error(f"Component registration error: [{e.resp}]")
         self.logger.info(f"Component with id [{component_id}] registered")
+
+    def get_ci_type_group_id(self, component_id, parent_id):
+        """
+        CI type group for a new component: its parent's group, else its own ID
+        """
+        if not parent_id:
+            return component_id
+
+        try:
+            parent_ci_type_id = self.pg_client.get_citypedms_by_dms_id(parent_id)["ci_type_id"]
+            citype_incs = self.pg_client.get_citypeincs_by_citype_id(parent_ci_type_id)
+        except HttpAPIError as e:
+            if e.code != 404:
+                raise
+            self.logger.warning(
+                f"Parent [{parent_id}] of [{component_id}] is not registered or has no CI type group [{e.url}], using own ID")
+            return component_id
+
+        return citype_incs["ci_type_group_id"]
 
     def generate_ci_regexp(self, component, client=None):
         distr_gav_template = self._gav_template.get("tgtGavTemplate").get("distribution")

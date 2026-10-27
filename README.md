@@ -45,3 +45,16 @@ API *v2* was the default in v.1.5 and below
 One may set `--dms-api-version` startup parameter to any (`2` or `3`) if necessary.
 
 **NOTE**: if API *v3* is used then `DMS_CRS_URL` is ignored and may be omitted.
+
+## Auto-registration grouping
+With `--auto-register-component` the webhook registers unknown components in the delivery DB.
+A component whose payload has `componentVersion.parentComponent` is registered into the *CI type group* of its parent's citype: the parent's citype is looked up via `citypedms`, then its group via `citype_incs` (`dl_schema`).
+
+It falls back to a group named after the component itself when:
+- there is no `parentComponent`
+- the parent is not registered
+- the parent's citype has no *CI type group*
+
+Any other API error fails the webhook.
+
+**NOTE**: this affects **new** registrations only. Already registered components keep their group; moving them is a separate DB fix.

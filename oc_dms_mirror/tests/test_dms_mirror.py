@@ -843,6 +843,7 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.dmsmirror.pg_client.post_new_component = Mock(
             return_value=Mock(status_code=201)
         )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
 
         payload = {
             'type': 'PUBLISH_COMPONENT_VERSION',
@@ -863,11 +864,13 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
 
         self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
         self.dmsmirror.pg_client.post_new_component.assert_called_once()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
 
         args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
         register_payload = args[0]
 
         self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["ci_type_group_id"], "test-component")
         self.assertEqual(register_payload["name"], "Test Component")
         self.assertEqual(register_payload["is_standard"], "Y")
         self.assertEqual(register_payload["is_deliverable"], True)
@@ -1054,3 +1057,103 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
 
         self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
         self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_get_ci_type_group_id__no_parent(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(self.dmsmirror.get_ci_type_group_id("test-component", None), "test-component")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_not_called()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def test_get_ci_type_group_id__parent_not_registered(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("test-component", "parent-component"), "test-component")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("parent-component")
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def test_get_ci_type_group_id__parent_without_group(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value={"ci_type_id": "PARENT", "dms_id": "parent-component"}
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(side_effect=HttpAPIError(code=404))
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("test-component", "parent-component"), "test-component")
+
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_called_once_with("PARENT")
+
+    def test_register_component__parent_lookup_error(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            side_effect=[HttpAPIError(code=404), {"ci_type_id": "PARENT", "dms_id": "parent-component"}]
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None,
+                'parentComponent': 'parent-component'
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        with self.assertRaises(HttpAPIError):
+            self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_register_component__parent_group(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            side_effect=[HttpAPIError(code=404), {"ci_type_id": "PARENT", "dms_id": "parent-component"}]
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(
+            return_value={"ci_type_id": "PARENT", "ci_type_group_id": "PARENTGRP"}
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None,
+                'parentComponent': 'parent-component'
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_has_calls(
+            [call("test-component"), call("parent-component")])
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_called_once_with("PARENT")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["ci_type_group_id"], "PARENTGRP")

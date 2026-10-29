@@ -104,15 +104,16 @@ In JSON the second group is written escaped (`\\$v`), and `.replace("\\", "")` s
 
 With `--auto-register-component`, `process_component_webhook()` calls `register_component()` before mirroring.
 
-The registered `ci_type_group_id` comes from `get_ci_type_group_id()`:
-- A component with `componentVersion.parentComponent` joins the group of its parent's citype: `pg_client.get_citypedms_by_dms_id(parent)["ci_type_id"]`, then `pg_client.get_citypeincs_by_citype_id(...)["ci_type_group_id"]` (`dl_schema`).
-- With no parent, an unregistered parent, or a parent citype without a group (404), it falls back to the component ID: a CI type group named after itself.
+The registered `ci_type_group_id` comes from `get_ci_type_group_id()`, first hit wins:
+- A component with `componentVersion.parentComponent` joins the group of its parent's citype: `pg_client.get_citypedms_by_dms_id(parent)["ci_type_id"]`, then `pg_client.get_citypeincs_by_citype_id(...)["ci_type_group_id"]` (`dl_schema`). The parent is checked first on purpose: client DMP bundles are solutions too, and belong to the group of `dmp-bundle`.
+- With no parent and `componentVersion.solution` set (always present in the payload), it goes to `--ci-type-group-solution` (default `client-solution`).
+- Otherwise it falls back to the component ID: a CI type group named after itself. This includes a solution whose parent is unregistered or whose parent citype has no group (404).
 - Any non-404 error propagates and fails the webhook on purpose. A fallback would be permanent, because `is_component_registered()` skips the component on every later webhook.
 - Components that are already registered keep their group. Moving them is a separate DB fix.
 
 Other payload rules:
 - `componentVersion.labels`: `non-deliverable` → `is_deliverable: False`; `test-component` → skipped entirely.
-- `is_standard` is `"N"` when a `clientCode` is present.
+- `is_standard` is `"N"` when a `clientCode` is present or `componentVersion.solution` is set.
 - Only `PUBLISH_COMPONENT_VERSION` events are accepted; anything else raises.
 
 ### Secrets and clients
@@ -139,6 +140,7 @@ All API clients (`dms_client`, `mvn_client`, `pg_client`, `psql_mq_client`, `que
 
 - **`DmsMirrorV3TestSuite` subclasses `DmsMirrorV2TestSuite`.** A test added to the v2 suite runs under v3 as well, unless it is overridden. Several are, precisely because the v3 substitution path differs.
 - **Mocked DMS methods need `__name__` set** (`mock.__name__ = "get_versions"`), because `_make_dms_api_call_with_retries` reads it for its log line.
+- **`self.args` is a `MagicMock`**, so an option the code reads but `setUp` doesn't set comes back as a `MagicMock`, not its default. Set every new option in `setUp`, as with `ci_type_group_solution`.
 - **`pg_client` is a real `PostgresAPI` with its methods replaced by `Mock`s.** Mock every method a test reaches, for example `get_citypedms_by_dms_id`, `get_citypeincs_by_citype_id` and `post_new_component`. An unmocked one tries real HTTP.
 - **Where registration tests live:** in `DmsMirrorV3TestSuite` (`test_register_component__*`, `test_get_ci_type_group_id__*`). The logic doesn't depend on the DMS version.
 

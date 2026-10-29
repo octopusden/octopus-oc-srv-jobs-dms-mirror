@@ -193,6 +193,8 @@ class DmsMirror:
         is_deliverable = False if "non-deliverable" in component_labels else True
         should_registered = False if "test-component" in component_labels else True
 
+        is_solution = payload.get("componentVersion").get("solution")
+
         if not should_registered:
             self.logger.info(f"Component with id [{component_id}] should not be registered, skipping")
             return
@@ -207,12 +209,12 @@ class DmsMirror:
         if not ciregexp:
             return
 
-        ci_type_group_id = self.get_ci_type_group_id(component_id, component_parent_id)
+        ci_type_group_id = self.get_ci_type_group_id(component_id, component_parent_id, is_solution)
         register_payload = {
             "ci_type_id": component_id,
             "ci_type_group_id": ci_type_group_id,
             "name": component_name,
-            "is_standard": "N" if client else "Y",
+            "is_standard": "N" if client or is_solution else "Y",
             "is_deliverable": is_deliverable,
             "regexp": ciregexp,
             "loc_type_id": "NXS",
@@ -229,12 +231,15 @@ class DmsMirror:
             self.logger.error(f"Component registration error: [{e.resp}]")
         self.logger.info(f"Component with id [{component_id}] registered")
 
-    def get_ci_type_group_id(self, component_id, parent_id):
+    def get_ci_type_group_id(self, component_id, parent_id, is_solution: bool = False):
         """
-        CI type group for a new component: its parent's group, else its own ID
+        CI type group for a new component: its parent's group,
+        else the solution group for a solution without a parent, else its own ID
         """
         if not parent_id:
-            return component_id
+            if not is_solution:
+                return component_id
+            return self._args.ci_type_group_solution
 
         try:
             parent_ci_type_id = self.pg_client.get_citypedms_by_dms_id(parent_id)["ci_type_id"]
@@ -687,6 +692,8 @@ class DmsMirror:
                             help="CI Type for Release Notes artifacts", default="RELEASENOTES")
         parser.add_argument("--ci-type-documentation", dest="ci_type_documentation",
                             help="CI Type for Documentation artifacts", default="DOCS")
+        parser.add_argument("--ci-type-group-solution", dest="ci_type_group_solution",
+                            help="CI Type Group for Solution distribution", default="client-solution")
         parser.add_argument("--auto-register-component", dest="auto_register_component",
                             help="Auto registration for new component", default=vault_api.load_secret("AUTO_REGISTRATION", False))
         return parser

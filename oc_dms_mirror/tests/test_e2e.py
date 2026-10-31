@@ -309,3 +309,10 @@ class DmsMirrorE2ETestSuite(unittest.TestCase):
         self.assertEqual(_errors, [])
         self.assertFalse([_gav for _gav in self._uploaded() if "sandbox" in _gav])
 
+    def test_cron__versions_limit(self):
+        # with a limit of 1 only the newest version is processed, 4.3.9 is never looked at
+        self.nexus.gavs = set()
+        _errors, _warnings = self._run_cron("--versions-limit", "1")
+        self.assertEqual(_errors, [])
+        self.assertIn(LEGACY_DIST_GAV, self._uploaded())
+        self.assertFalse([_gav for _gav in self._uploaded() if ":4.3.9:" in _gav])

@@ -283,6 +283,8 @@ class DmsMirror:
 
         try:
             versions = self._make_dms_api_call_with_retries(self.dms_client.get_versions, component) or list()
+            # DMS returns the newest released versions first
+            versions = versions[:self._args.versions_limit]
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
@@ -595,6 +597,8 @@ class DmsMirror:
                             default=os.path.join(os.getcwd(), "config.json"))
         parser.add_argument("--gav-template-config-file", dest="gav_template_config_file", type=str, help="Path to gav template configuration file",
                             default=os.path.join(os.getcwd(), "gav_template_config.json"))
+        parser.add_argument("--versions-limit", dest="versions_limit", type=int,
+                            help="Number of newest released versions to process per component", default=3)
         parser.add_argument("--retries-count", dest="retries_count", type=int,
                             help='Retries count for DMS connection failures', default=5)
 

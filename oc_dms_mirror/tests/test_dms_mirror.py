@@ -74,6 +74,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
         self.args.always_enqueue = False
+        self.args.versions_limit = 3
         self.dmsmirror = DmsMirror()
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
         self.dmsmirror._psql_mq_client = unittest.mock.MagicMock()
@@ -100,6 +101,7 @@ class DmsMirrorInitTestSuite(DmsMirrorTestBase):
                 'log_level': 20,
                 'config_file': os.path.join(os.getcwd(), 'config.json'),
                 'retries_count': 5,
+                'versions_limit': 3,
                 'mvn_prefix': self.env.get('MVN_PREFIX'),
                 'mvn_url': self.env.get('MVN_URL'),
                 'mvn_user': self.env.get('MVN_USER'),
@@ -169,6 +171,17 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
 
         for _version in _versions:
             self.dmsmirror.process_version.assert_any_call(_version, _component)
+
+    def test_process_component__versions_limit(self):
+        _component = list(self.dmsmirror._components.keys()).pop()
+        # DMS returns the newest released versions first
+        _versions = ["2.0", "1.10", "1.9", "1.2", "0.5"]
+        self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(return_value=_versions)
+        self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
+        self.assertIsNone(self.dmsmirror.process_component(_component))
+        self.assertEqual(self.dmsmirror.process_version.call_args_list, [
+            call("2.0", _component), call("1.10", _component), call("1.9", _component)])
 
     def test_load_components__keyed_by_id(self):
         self.dmsmirror._dms_client.get_components = unittest.mock.MagicMock(

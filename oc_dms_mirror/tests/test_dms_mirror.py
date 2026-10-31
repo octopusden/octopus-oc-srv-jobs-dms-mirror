@@ -131,7 +131,11 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror.setup_from_args(self.args)
 
         with open(self.args.config_file, mode='rt') as _config:
-            self.dmsmirror._components = json.load(_config)
+            self.dmsmirror._components_config = json.load(_config)
+
+        # components as DMS returns them, keyed by ID
+        self.dmsmirror._components = {
+                _component: {"id": _component, "labels": []} for _component in self.dmsmirror._components_config}
 
     def test_always_enqueue(self):
         artifact_info = {'type': 'notes'}
@@ -166,11 +170,27 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         for _version in _versions:
             self.dmsmirror.process_version.assert_any_call(_version, _component)
 
-    def test_process_component_disabled(self):
+    def test_load_components__keyed_by_id(self):
+        self.dmsmirror._dms_client.get_components = unittest.mock.MagicMock(
+            return_value=[{"id": "legacy-comp", "labels": []}, {"id": "new-comp", "labels": []}])
+        self.dmsmirror._dms_client.get_components.__name__ = "get_components"
+        self.dmsmirror.load_components()
+        self.assertEqual(list(self.dmsmirror._components), ["legacy-comp", "new-comp"])
+        self.assertEqual(self.dmsmirror._components["new-comp"], {"id": "new-comp", "labels": []})
+
+    def test_warn_unknown_config_components(self):
+        self.dmsmirror._components = {"legacy-comp": {"id": "legacy-comp"}}
+        self.dmsmirror._components_config = {"legacy-comp": {}, "archived-comp": {}}
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        self.dmsmirror.warn_unknown_config_components()
+        self.dmsmirror.logger.warning.assert_called_once()
+        self.assertIn("[archived-comp]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_process_component__test_component(self):
         _component = list(self.dmsmirror._components.keys()).pop()
         _versions = ["1", "2", "3"]
         self.assertIsNotNone(_component)
-        self.dmsmirror._components[_component]["enabled"] = False
+        self.dmsmirror._components[_component]["labels"] = ["test-component"]
         self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
         self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(return_value=_versions)
         self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
@@ -205,7 +225,7 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
             self.dmsmirror.process_artifact.assert_any_call(_artifact, _component, _version)
 
     def _get_artifact_test_case(self, suffix):
-        _config = self.dmsmirror._components
+        _config = self.dmsmirror._components_config
 
         for _component, _params in _config.items():
             if any(list(map(lambda _x: not _params.get(_x), ["tgtGavTemplate", "ci_type"]))):
@@ -219,7 +239,7 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
 
     def _process_artifact_asserts(self, component, version, artifact, artifact_type,
                                   ci_type, substitutes, artifact_info=dict()):
-        _tgt_gav = self.dmsmirror._components[component]["tgtGavTemplate"][artifact_type].replace("\\", "")
+        _tgt_gav = self.dmsmirror._components_config[component]["tgtGavTemplate"][artifact_type].replace("\\", "")
         _tgt_gav = Template(_tgt_gav).substitute(substitutes)
         _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
 
@@ -456,7 +476,11 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.dmsmirror.setup_from_args(self.args)
 
         with open(self.args.config_file, mode='rt') as _config:
-            self.dmsmirror._components = json.load(_config)
+            self.dmsmirror._components_config = json.load(_config)
+
+        # components as DMS returns them, keyed by ID
+        self.dmsmirror._components = {
+                _component: {"id": _component, "labels": []} for _component in self.dmsmirror._components_config}
 
 
     def test_artifact_classifier_with_colon(self):

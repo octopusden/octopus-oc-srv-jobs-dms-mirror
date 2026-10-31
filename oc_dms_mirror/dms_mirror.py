@@ -275,20 +275,14 @@ class DmsMirror:
         """
         self.__process_name = component
 
-        if not self._components[component].get('enabled', True):
-            self.logger.info(self.__log_msg(f"Skipping: [{component}]. Disabled in the configuration"))
+        if "test-component" in self._components[component].get('labels', []):
+            self.logger.info(self.__log_msg(f"Skipping: [{component}]. Component is a test component"))
             return None
 
         self.logger.info(self.__log_msg(f"Processing component {component} in separate thread"))
 
-        if any(list(map(lambda x: self._components[component].get(x), ["componentId", "artifactType"]))):
-            self.logger.warning(self.__log_msg(
-                "'componentId' and 'artifactType' parameters are deprecated and may be safely removed"))
-
         try:
             versions = self._make_dms_api_call_with_retries(self.dms_client.get_versions, component) or list()
-            self.logger.info(self.__log_msg(f"[{component}]: versions to process: [{len(versions)}]"))
-
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
@@ -446,7 +440,7 @@ class DmsMirror:
         self._register_artifact(_tgt_gav, _ci_type)
 
     def get_component_config(self, component):
-        _params = self._components.get(component)
+        _params = self._components_config.get(component)
         if _params:
             return _params
 
@@ -690,9 +684,25 @@ class DmsMirror:
             self.logger.info(self.__log_msg(f"{_k.upper()}:\t[{_display_value}]"))
 
 
+    def load_components(self):
+        """
+        Load the components to process from DMS, keyed by component ID
+        """
+        _components = self._make_dms_api_call_with_retries(self.dms_client.get_components) or list()
+        self._components = {_component["id"]: _component for _component in _components}
+
+    def warn_unknown_config_components(self):
+        """
+        Log config.json components that DMS doesn't return: archived, removed or a typo in the key
+        """
+        for _component in self._components_config:
+            if _component not in self._components:
+                self.logger.warning(self.__log_msg(
+                    f"Component [{_component}] is in config.json but not in DMS (archived, removed or a typo), skipping"))
+
     def load_config(self):
         with open(self._args.config_file, mode='rt') as _config:
-            self._components = json.load(_config)
+            self._components_config = json.load(_config)
 
         if os.path.exists(self._args.gav_template_config_file):
             with open(self._args.gav_template_config_file, mode='rt') as _config:
@@ -708,7 +718,9 @@ class DmsMirror:
         """
         self.logger.info(self.__log_msg(f"Reading components configuration: [{self._args.config_file}]"))
 
+        self.load_components()
         self.load_config()
+        self.warn_unknown_config_components()
 
         self.logger.info(self.__log_msg(f"Components to process: {len(self._components)}"))
 

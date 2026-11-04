@@ -187,10 +187,13 @@ class DmsMirror:
         component_id = payload.get("componentVersion").get("component")
         component_name = payload.get("componentVersion").get("displayName")
         component_labels = payload.get("componentVersion").get("labels", ['non-deliverable'])
+        component_parent_id = payload.get("componentVersion").get("parentComponent")
 
         # Component only deliverable if the labels non-deliverable not in component labels
         is_deliverable = False if "non-deliverable" in component_labels else True
         should_registered = False if "test-component" in component_labels else True
+
+        is_solution = payload.get("componentVersion").get("solution")
 
         if not should_registered:
             self.logger.info(f"Component with id [{component_id}] should not be registered, skipping")
@@ -205,11 +208,13 @@ class DmsMirror:
         ciregexp = self.generate_ci_regexp(component_id, client)
         if not ciregexp:
             return
+
+        ci_type_group_id = self.get_ci_type_group_id(component_id, component_parent_id, is_solution)
         register_payload = {
             "ci_type_id": component_id,
-            "ci_type_group_id": component_id,
+            "ci_type_group_id": ci_type_group_id,
             "name": component_name,
-            "is_standard": "N" if client else "Y",
+            "is_standard": "N" if client or is_solution else "Y",
             "is_deliverable": is_deliverable,
             "regexp": ciregexp,
             "loc_type_id": "NXS",
@@ -225,6 +230,28 @@ class DmsMirror:
         except HttpAPIError as e:
             self.logger.error(f"Component registration error: [{e.resp}]")
         self.logger.info(f"Component with id [{component_id}] registered")
+
+    def get_ci_type_group_id(self, component_id, parent_id, is_solution: bool = False):
+        """
+        CI type group for a new component: its parent's group,
+        else the solution group for a solution without a parent, else its own ID
+        """
+        if not parent_id:
+            if not is_solution:
+                return component_id
+            return self._args.ci_type_group_solution
+
+        try:
+            parent_ci_type_id = self.pg_client.get_citypedms_by_dms_id(parent_id)["ci_type_id"]
+            citype_incs = self.pg_client.get_citypeincs_by_citype_id(parent_ci_type_id)
+        except HttpAPIError as e:
+            if e.code != 404:
+                raise
+            self.logger.warning(
+                f"Parent [{parent_id}] of [{component_id}] is not registered or has no CI type group [{e.url}], using own ID")
+            return component_id
+
+        return citype_incs["ci_type_group_id"]
 
     def generate_ci_regexp(self, component, client=None):
         distr_gav_template = self._gav_template.get("tgtGavTemplate").get("distribution")
@@ -665,6 +692,8 @@ class DmsMirror:
                             help="CI Type for Release Notes artifacts", default="RELEASENOTES")
         parser.add_argument("--ci-type-documentation", dest="ci_type_documentation",
                             help="CI Type for Documentation artifacts", default="DOCS")
+        parser.add_argument("--ci-type-group-solution", dest="ci_type_group_solution",
+                            help="CI Type Group for Solution distribution", default="client-solution")
         parser.add_argument("--auto-register-component", dest="auto_register_component",
                             help="Auto registration for new component", default=vault_api.load_secret("AUTO_REGISTRATION", False))
         return parser

@@ -74,6 +74,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
         self.args.always_enqueue = False
+        self.args.ci_type_group_solution = 'client-solution'
         self.dmsmirror = DmsMirror()
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
         self.dmsmirror._psql_mq_client = unittest.mock.MagicMock()
@@ -113,7 +114,8 @@ class DmsMirrorInitTestSuite(DmsMirrorTestBase):
                 'dms_user': self.env.get('DMS_USER'),
                 'dms_password': self.env.get('DMS_PASSWORD'),
                 'ci_type_release_notes': 'RELEASENOTES',
-                'ci_type_documentation': 'DOCS'}
+                'ci_type_documentation': 'DOCS',
+                'ci_type_group_solution': 'client-solution'}
 
         for _k, _v in _supposed_defaults.items():
             self.assertEqual(_parser.get_default(_k), _v)
@@ -843,6 +845,7 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self.dmsmirror.pg_client.post_new_component = Mock(
             return_value=Mock(status_code=201)
         )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
 
         payload = {
             'type': 'PUBLISH_COMPONENT_VERSION',
@@ -863,11 +866,13 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
 
         self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
         self.dmsmirror.pg_client.post_new_component.assert_called_once()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
 
         args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
         register_payload = args[0]
 
         self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["ci_type_group_id"], "test-component")
         self.assertEqual(register_payload["name"], "Test Component")
         self.assertEqual(register_payload["is_standard"], "Y")
         self.assertEqual(register_payload["is_deliverable"], True)
@@ -1054,3 +1059,192 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
 
         self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("test-component")
         self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_get_ci_type_group_id__no_parent(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(self.dmsmirror.get_ci_type_group_id("test-component", None), "test-component")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_not_called()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def test_get_ci_type_group_id__parent_not_registered(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("test-component", "parent-component"), "test-component")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("parent-component")
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def test_get_ci_type_group_id__parent_without_group(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value={"ci_type_id": "PARENT", "dms_id": "parent-component"}
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(side_effect=HttpAPIError(code=404))
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("test-component", "parent-component"), "test-component")
+
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_called_once_with("PARENT")
+
+    def test_register_component__parent_lookup_error(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            side_effect=[HttpAPIError(code=404), {"ci_type_id": "PARENT", "dms_id": "parent-component"}]
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None,
+                'parentComponent': 'parent-component'
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        with self.assertRaises(HttpAPIError):
+            self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.post_new_component.assert_not_called()
+
+    def test_register_component__parent_group(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            side_effect=[HttpAPIError(code=404), {"ci_type_id": "PARENT", "dms_id": "parent-component"}]
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(
+            return_value={"ci_type_id": "PARENT", "ci_type_group_id": "PARENTGRP"}
+        )
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        payload = {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'test-component',
+                'version': '1.0.0',
+                'displayName': 'Test Component',
+                'labels': [],
+                'clientCode': None,
+                'parentComponent': 'parent-component'
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'},
+                {'artifactId': 'artifact-2'}
+            ]
+        }
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_has_calls(
+            [call("test-component"), call("parent-component")])
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_called_once_with("PARENT")
+        self.dmsmirror.pg_client.post_new_component.assert_called_once()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        register_payload = args[0]
+
+        self.assertEqual(register_payload["ci_type_id"], "test-component")
+        self.assertEqual(register_payload["ci_type_group_id"], "PARENTGRP")
+
+    def test_get_ci_type_group_id__solution(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("neo-solution-acba", None, is_solution=True), "client-solution")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_not_called()
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def test_get_ci_type_group_id__solution_with_parent(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(
+            return_value={"ci_type_id": "dmp-bundle", "dms_id": "dmp-bundle"}
+        )
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock(
+            return_value={"ci_type_id": "dmp-bundle", "ci_type_group_id": "dmp-bundle"}
+        )
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("kazkmf-dmp-bundle", "dmp-bundle", is_solution=True), "dmp-bundle")
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("dmp-bundle")
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_called_once_with("dmp-bundle")
+
+    def test_get_ci_type_group_id__solution_parent_not_registered(self):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+
+        self.assertEqual(
+            self.dmsmirror.get_ci_type_group_id("neo-solution-acba", "parent-component", is_solution=True),
+            "neo-solution-acba")
+
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+    def _get_solution_payload(self, client_code, solution):
+        return {
+            'type': 'PUBLISH_COMPONENT_VERSION',
+            'componentVersion': {
+                'component': 'neo-solution-acba',
+                'version': '1.0.0',
+                'displayName': 'ACBA Neo Solution',
+                'labels': [],
+                'clientCode': client_code,
+                'solution': solution
+            },
+            'artifacts': [
+                {'artifactId': 'artifact-1'}
+            ]
+        }
+
+    def _register_and_get_payload(self, payload):
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id = Mock(side_effect=HttpAPIError(code=404))
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id = Mock()
+        self.dmsmirror.pg_client.post_new_component = Mock(
+            return_value=Mock(status_code=201)
+        )
+
+        self.dmsmirror.register_component(payload=payload)
+
+        self.dmsmirror.pg_client.get_citypedms_by_dms_id.assert_called_once_with("neo-solution-acba")
+        self.dmsmirror.pg_client.get_citypeincs_by_citype_id.assert_not_called()
+
+        args, kwargs = self.dmsmirror.pg_client.post_new_component.call_args
+        return args[0]
+
+    def test_register_component__client_solution(self):
+        register_payload = self._register_and_get_payload(self._get_solution_payload("ARMACBA", True))
+
+        self.assertEqual(register_payload["ci_type_group_id"], "client-solution")
+        self.assertEqual(register_payload["is_standard"], "N")
+
+    def test_register_component__client_not_solution(self):
+        register_payload = self._register_and_get_payload(self._get_solution_payload("ARMACBA", False))
+
+        self.assertEqual(register_payload["ci_type_group_id"], "neo-solution-acba")
+        self.assertEqual(register_payload["is_standard"], "N")
+
+    def test_register_component__solution_without_client(self):
+        register_payload = self._register_and_get_payload(self._get_solution_payload(None, True))
+
+        self.assertEqual(register_payload["ci_type_group_id"], "client-solution")
+        self.assertEqual(register_payload["is_standard"], "N")
+
+    def test_register_component__not_solution_without_client(self):
+        register_payload = self._register_and_get_payload(self._get_solution_payload(None, False))
+
+        self.assertEqual(register_payload["ci_type_group_id"], "neo-solution-acba")
+        self.assertEqual(register_payload["is_standard"], "Y")

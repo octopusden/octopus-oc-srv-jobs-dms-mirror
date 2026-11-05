@@ -119,3 +119,18 @@ Only DMS API v3 is supported. These are gone:
 - options `--dms-api-version`, `--dms-crs-url`, `--dms-token`, `--max-processed-artifacts`
 - environment variables `DMS_CRS_URL` and `DMS_TOKEN`
 - the `enabled` key in `config.json`, and the long-deprecated `componentId` and `artifactType` keys
+
+## Auto-registration grouping
+With `--auto-register-component` the webhook registers unknown components in the delivery DB.
+The *CI type group* is picked in this order:
+1. **parent**: the payload has `componentVersion.parentComponent`. The component joins the group of its parent's citype: the parent's citype is looked up via `citypedms`, then its group via `citype_incs` (`dl_schema`). Client DMP bundles take this path.
+2. **solution**: the payload has no `componentVersion.parentComponent` and `componentVersion.solution` is set. It goes into the group given with `--ci-type-group-solution`. *Default*: `client-solution`.
+3. **own**: a group named after the component itself.
+
+A solution is registered as non-standard (`is_standard = N`), with or without a `clientCode`.
+The solution group must exist in the delivery DB before the first such registration.
+
+When the parent is not registered, or the parent's citype has no *CI type group*, the component gets a group of its own (step 3), solution or not.
+Any other API error fails the webhook.
+
+**NOTE**: this affects **new** registrations only. Already registered components keep their group; moving them is a separate DB fix.

@@ -7,7 +7,8 @@ import json
 import unittest
 import unittest.mock
 from unittest.mock import Mock, call
-from ..dms_mirror import DmsMirror
+import requests.exceptions
+from ..dms_mirror import DmsMirror, DMS_UNAVAILABLE
 from oc_cdtapi.DmsAPI import DmsAPIv3
 from oc_cdtapi.API import HttpAPIError
 from string import Template
@@ -407,7 +408,7 @@ class DmsMirrorTestSuite(DmsMirrorTestBase):
         self.assertIsNone(self.dmsmirror.process_artifact({"type": _artifact_type, "id": 1, "fileName": "a-1.zip"}, _component, "1"))
         self.dmsmirror._mvn_client.exists.assert_not_called()
         self.dmsmirror._copy_artifact.assert_not_called()
-        self.assertIn("DMS failed to return the artifact info", self.dmsmirror.logger.warning.call_args[0][0])
+        self.assertIn("DMS failed on [get_artifact_info] with [500]", self.dmsmirror.logger.warning.call_args[0][0])
 
     def test_process_version__dms_server_error(self):
         _component = list(self.dmsmirror._components.keys()).pop()
@@ -438,7 +439,25 @@ class DmsMirrorTestSuite(DmsMirrorTestBase):
         self.dmsmirror._dms_client.get_components.__name__ = "get_components"
         self.dmsmirror.logger = unittest.mock.MagicMock()
         self.assertIsNone(self.dmsmirror._generate_component_config({"dms_id": "new-comp", "ci_type_id": "new-comp"}))
-        self.assertIn("DMS failed to list the components", self.dmsmirror.logger.warning.call_args[0][0])
+        self.assertIn("DMS failed on [get_components] with [500]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_dms_call_or_skip(self):
+        self.args.retries_count = 1
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        _method = Mock(return_value=[])
+        _method.__name__ = "get_versions"
+        self.assertEqual(self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x"), [])
+        _method.assert_called_once_with("x")
+
+        _method.side_effect = HttpAPIError(code=502)
+        self.assertIs(self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x"), DMS_UNAVAILABLE)
+        self.assertEqual(self.dmsmirror.logger.warning.call_args[0][0],
+                         "[?]: DMS failed on [get_versions] with [502], skipping the component [x]")
+
+        for _error in [HttpAPIError(code=401), requests.exceptions.ConnectionError("down")]:
+            _method.side_effect = _error
+            with self.assertRaises(type(_error)):
+                self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x")
 
     def test_dms_call__client_error_not_retried(self):
         self.args.retries_count = 3

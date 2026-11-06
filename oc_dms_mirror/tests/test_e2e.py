@@ -368,7 +368,7 @@ class DmsMirrorE2ETestSuite(unittest.TestCase):
         self.assertEqual(_errors, [])
         self.assertNotIn(NEW_COMP_DIST_GAV, self._uploaded())
         self.assertIn(LEGACY_DIST_GAV, self._uploaded())
-        self.assertEqual(len([_w for _w in _warnings if "DMS failed to list the versions of [new-comp] with [500]" in _w]), 1)
+        self.assertEqual(len([_w for _w in _warnings if "DMS failed on [get_versions] with [500], skipping the component [new-comp]" in _w]), 1)
 
     def test_webhook__dms_server_error_on_download_skipped(self):
         self.dms.failing_files.add(4)

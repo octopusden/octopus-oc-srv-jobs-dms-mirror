@@ -2,7 +2,7 @@
 
 from setuptools import setup
 
-__version = "3.6.1"
+__version = "3.7.0"
 
 setup(
     name="oc-dms-mirror",

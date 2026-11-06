@@ -8,7 +8,7 @@ import unittest
 import unittest.mock
 from unittest.mock import Mock, call
 from ..dms_mirror import DmsMirror
-from oc_cdtapi.DmsAPI import DmsAPI, DmsAPIv3
+from oc_cdtapi.DmsAPI import DmsAPIv3
 from oc_cdtapi.API import HttpAPIError
 from string import Template
 import re
@@ -31,11 +31,9 @@ class DmsMirrorTestBase(unittest.TestCase):
                 'MVN_UPLOAD_REPO': 'test_upload_repo',
                 'MVN_DOWNLOAD_REPO': 'test_download_repo',
                 'MVN_PREFIX': 'com.example',
-                'DMS_CRS_URL': 'https://dms-crs.example.com',
                 'DMS_URL': 'https://dms.example.com',
                 'DMS_USER': 'test_dms_user',
                 'DMS_PASSWORD': 'test_dms_password',
-                'DMS_TOKEN': 'test_dms_token',
                 'PSQL_MQ_URL': 'https://psql.example.com',
                 'PSQL_MQ_USER': 'test_psql_mq_user',
                 'PSQL_MQ_PASSWORD': 'test_psql_mq_password',
@@ -74,6 +72,7 @@ class DmsMirrorTestBase(unittest.TestCase):
         self.args.ci_type_documentation = 'DOCS'
         self.args.ci_type_release_notes = 'RELEASENOTES'
         self.args.always_enqueue = False
+        self.args.versions_limit = 3
         self.args.ci_type_group_solution = 'client-solution'
         self.dmsmirror = DmsMirror()
         self.dmsmirror._queue_client = unittest.mock.MagicMock()
@@ -101,15 +100,13 @@ class DmsMirrorInitTestSuite(DmsMirrorTestBase):
                 'log_level': 20,
                 'config_file': os.path.join(os.getcwd(), 'config.json'),
                 'retries_count': 5,
+                'versions_limit': 3,
                 'mvn_prefix': self.env.get('MVN_PREFIX'),
                 'mvn_url': self.env.get('MVN_URL'),
                 'mvn_user': self.env.get('MVN_USER'),
                 'mvn_password': self.env.get('MVN_PASSWORD'),
                 'mvn_upload_repo': self.env.get('MVN_UPLOAD_REPO'),
                 'mvn_download_repo': self.env.get('MVN_DOWNLOAD_REPO'),
-                'dms_api_version': 3,
-                'dms_crs_url': self.env.get('DMS_CRS_URL'),
-                'dms_token': self.env.get('DMS_TOKEN'),
                 'dms_url': self.env.get('DMS_URL'),
                 'dms_user': self.env.get('DMS_USER'),
                 'dms_password': self.env.get('DMS_PASSWORD'),
@@ -120,20 +117,21 @@ class DmsMirrorInitTestSuite(DmsMirrorTestBase):
         for _k, _v in _supposed_defaults.items():
             self.assertEqual(_parser.get_default(_k), _v)
 
-class DmsMirrorV2TestSuite(DmsMirrorTestBase):
+class DmsMirrorTestSuite(DmsMirrorTestBase):
     def setUp(self):
         super().setUp()
-        self.args.dms_api_version = 2
-        self.args.dms_crs_url = self.env.get('DMS_CRS_URL')
-        self.args.dms_token = self.env.get('DMS_TOKEN')
-
-        with unittest.mock.patch.dict(os.environ, self.env):
-            self.dmsmirror._dms_client = DmsAPI()
-
+        self.dmsmirror._dms_client = DmsAPIv3(
+                root=self.args.dms_url,
+                user=self.args.dms_user,
+                auth=self.args.dms_password)
         self.dmsmirror.setup_from_args(self.args)
 
         with open(self.args.config_file, mode='rt') as _config:
-            self.dmsmirror._components = json.load(_config)
+            self.dmsmirror._components_config = json.load(_config)
+
+        # components as DMS returns them, keyed by ID
+        self.dmsmirror._components = {
+                _component: {"id": _component, "labels": []} for _component in self.dmsmirror._components_config}
 
     def test_always_enqueue(self):
         artifact_info = {'type': 'notes'}
@@ -168,11 +166,38 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         for _version in _versions:
             self.dmsmirror.process_version.assert_any_call(_version, _component)
 
-    def test_process_component_disabled(self):
+    def test_process_component__versions_limit(self):
+        _component = list(self.dmsmirror._components.keys()).pop()
+        # DMS returns the newest released versions first
+        _versions = ["2.0", "1.10", "1.9", "1.2", "0.5"]
+        self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(return_value=_versions)
+        self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
+        self.assertIsNone(self.dmsmirror.process_component(_component))
+        self.assertEqual(self.dmsmirror.process_version.call_args_list, [
+            call("2.0", _component), call("1.10", _component), call("1.9", _component)])
+
+    def test_load_components__keyed_by_id(self):
+        self.dmsmirror._dms_client.get_components = unittest.mock.MagicMock(
+            return_value=[{"id": "legacy-comp", "labels": []}, {"id": "new-comp", "labels": []}])
+        self.dmsmirror._dms_client.get_components.__name__ = "get_components"
+        self.dmsmirror.load_components()
+        self.assertEqual(list(self.dmsmirror._components), ["legacy-comp", "new-comp"])
+        self.assertEqual(self.dmsmirror._components["new-comp"], {"id": "new-comp", "labels": []})
+
+    def test_warn_unknown_config_components(self):
+        self.dmsmirror._components = {"legacy-comp": {"id": "legacy-comp"}}
+        self.dmsmirror._components_config = {"legacy-comp": {}, "archived-comp": {}}
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        self.dmsmirror.warn_unknown_config_components()
+        self.dmsmirror.logger.warning.assert_called_once()
+        self.assertIn("[archived-comp]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_process_component__test_component(self):
         _component = list(self.dmsmirror._components.keys()).pop()
         _versions = ["1", "2", "3"]
         self.assertIsNotNone(_component)
-        self.dmsmirror._components[_component]["enabled"] = False
+        self.dmsmirror._components[_component]["labels"] = ["test-component"]
         self.dmsmirror.process_version = unittest.mock.MagicMock(return_value=None)
         self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(return_value=_versions)
         self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
@@ -207,7 +232,7 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
             self.dmsmirror.process_artifact.assert_any_call(_artifact, _component, _version)
 
     def _get_artifact_test_case(self, suffix):
-        _config = self.dmsmirror._components
+        _config = self.dmsmirror._components_config
 
         for _component, _params in _config.items():
             if any(list(map(lambda _x: not _params.get(_x), ["tgtGavTemplate", "ci_type"]))):
@@ -221,7 +246,7 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
 
     def _process_artifact_asserts(self, component, version, artifact, artifact_type,
                                   ci_type, substitutes, artifact_info=dict()):
-        _tgt_gav = self.dmsmirror._components[component]["tgtGavTemplate"][artifact_type].replace("\\", "")
+        _tgt_gav = self.dmsmirror._components_config[component]["tgtGavTemplate"][artifact_type].replace("\\", "")
         _tgt_gav = Template(_tgt_gav).substitute(substitutes)
         _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
 
@@ -230,16 +255,14 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror._copy_artifact = unittest.mock.MagicMock(return_value=None)
         self.dmsmirror._register_artifact = unittest.mock.MagicMock(return_value=None)
 
-        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
-            self.dmsmirror._dms_client.get_artifact_info = unittest.mock.MagicMock(return_value=artifact_info)
+        self.dmsmirror._dms_client.get_artifact_info = unittest.mock.MagicMock(return_value=artifact_info)
 
         self.assertIsNone(self.dmsmirror.process_artifact(artifact, component, version))
         self.dmsmirror._mvn_client.exists.assert_called_once_with(_tgt_gav, repo=self.args.mvn_download_repo)
         self.dmsmirror._register_artifact.assert_called_once_with(_tgt_gav, ci_type)
         self.dmsmirror._copy_artifact.assert_called_once_with(component, version, artifact, _tgt_gav)
 
-        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
-            self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
+        self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
 
         # now case when target artifact exists
         self.dmsmirror._mvn_client.exists.reset_mock()
@@ -247,160 +270,14 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.dmsmirror._copy_artifact.reset_mock()
         self.dmsmirror._register_artifact.reset_mock()
 
-        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
-            self.dmsmirror._dms_client.get_artifact_info.reset_mock()
+        self.dmsmirror._dms_client.get_artifact_info.reset_mock()
 
         self.assertIsNone(self.dmsmirror.process_artifact(artifact, component, version))
         self.dmsmirror._mvn_client.exists.assert_called_once_with(_tgt_gav, repo=self.args.mvn_download_repo)
         self.dmsmirror._register_artifact.assert_not_called()
         self.dmsmirror._copy_artifact.assert_not_called()
 
-        if hasattr(self.dmsmirror._dms_client, "get_artifact_info"):
-            self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
-
-    def test_artifact_classifier_with_colon(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": "c1",
-                     "id": 1}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "c_colon": f":{_artifact.get('classifier')}",
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_artifact_classifier_wo_delimeter(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$cl")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": "c1",
-                     "id": 1}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "cl": _artifact.get('classifier'),
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_artifact_classifier_with_hyphen(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_hyphen")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": "c1"}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "c_hyphen": f"-{_artifact.get('classifier')}",
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_artifact_empty_classifier_with_hyphen(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_hyphen")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": None}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "c_hyphen": "",
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_artifact_empty_classifier_with_colon(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": None}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "c_colon": "",
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_artifact_empty_classifier_wo_delimiter(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        # see config.json for appropriate test case
-        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$cl")
-        _version = "1"
-        # should be created with target gav
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": None}
-        _substitutes = {
-                "at": _artifact_type,
-                "n": _artifact.get("name"),
-                "v": _version,
-                "p": _artifact.get("packaging"),
-                "cl": "",
-                "prefix": self.args.mvn_prefix}
-        self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
-
-    def test_copy_artifact(self):
-        self.assertEqual(self.args.dms_api_version, 2)
-        _component = "component"
-        _artifact_type = "distribution"
-        _artifact = {"type": _artifact_type,
-                     "name": "a1",
-                     "packaging": "pkg",
-                     "classifier": "c1"}
-        _version = "1"
-        _tgt_gav = f"{self.args.mvn_prefix}.{_component}:{_component}:{_version}:pkg"
-        _src_gav = f"{self.args.mvn_prefix}.{_component}:{_component}:{_version}:pkg:{_artifact_type}"
-
-        #mock for v.2:
-        self.assertTrue(hasattr(self.dmsmirror._dms_client, "get_gav"))
-        self.assertFalse(hasattr(self.dmsmirror._dms_client, "download_component"))
-        self.dmsmirror._dms_client.get_gav = unittest.mock.MagicMock(return_value=_src_gav)
-        self.dmsmirror._dms_client.get_gav.__name__ = 'get_gav'
-        self.dmsmirror._mvn_client.cat = unittest.mock.MagicMock(return_value="OK")
-        self.dmsmirror._mvn_client.upload = unittest.mock.MagicMock(return_value="OK")
-
-        self.dmsmirror._copy_artifact(_component, _version, _artifact, _tgt_gav)
-        self.dmsmirror._dms_client.get_gav.assert_called_once_with(
-                _component, _version, _artifact_type, _artifact.get("name"), _artifact.get("classifier"))
-        self.dmsmirror._mvn_client.cat.assert_called_once_with(
-                _src_gav, repo=self.args.mvn_download_repo, stream=True, binary=True, write_to=unittest.mock.ANY)
-        self.dmsmirror._mvn_client.upload.assert_called_once_with(
-                _tgt_gav, repo=self.args.mvn_upload_repo, data=unittest.mock.ANY, pom=True)
+        self.dmsmirror._dms_client.get_artifact_info.assert_called_once_with(component, version, artifact["id"])
 
     def test_register_artifact_amqp(self):
         self.args.msg_target = 'amqp'
@@ -446,23 +323,17 @@ class DmsMirrorV2TestSuite(DmsMirrorTestBase):
         self.assertEqual(self.dmsmirror._get_static_ci_type("report"), self.args.ci_type_release_notes)
         self.assertIsNone(self.dmsmirror._get_static_ci_type("distribution"))
 
-class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
-    def setUp(self):
-        super().setUp()
-        self.args.dms_api_version = 3
-
-        self.dmsmirror._dms_client = DmsAPIv3(
-                root=self.args.dms_url,
-                user=self.args.dms_user,
-                auth=self.args.dms_password)
-        self.dmsmirror.setup_from_args(self.args)
-
-        with open(self.args.config_file, mode='rt') as _config:
-            self.dmsmirror._components = json.load(_config)
-
+    def test_process_artifact__no_template_for_type(self):
+        _component = list(self.dmsmirror._components_config.keys()).pop()
+        self.dmsmirror._make_gav_substitute = unittest.mock.MagicMock()
+        self.dmsmirror._copy_artifact = unittest.mock.MagicMock()
+        self.dmsmirror._register_artifact = unittest.mock.MagicMock()
+        self.assertIsNone(self.dmsmirror.process_artifact({"type": "unknown-type", "id": 1}, _component, "1"))
+        self.dmsmirror._make_gav_substitute.assert_not_called()
+        self.dmsmirror._copy_artifact.assert_not_called()
+        self.dmsmirror._register_artifact.assert_not_called()
 
     def test_artifact_classifier_with_colon(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
         _version = "1"
@@ -498,7 +369,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_classifier_wo_delimeter(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$cl")
         _version="1"
@@ -532,7 +402,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_classifier_with_hyphen(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_hyphen")
         _version="1"
@@ -569,7 +438,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_with_hyphen(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_hyphen")
         _version="1"
@@ -604,7 +472,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_with_colon(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
         _version = "1"
@@ -640,7 +507,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_artifact_empty_classifier_wo_delimiter(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         # see config.json for appropriate test case
         _component, _ci_type, _artifact_type = self._get_artifact_test_case("$cl")
         _version = "1"
@@ -675,7 +541,6 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         self._process_artifact_asserts(_component, _version, _artifact, _artifact_type, _ci_type, _substitutes)
 
     def test_copy_artifact(self):
-        self.assertEqual(self.args.dms_api_version, 3)
         _component = "component"
         _artifact_type = "distribution"
         _artifact = {"type": _artifact_type,
@@ -683,18 +548,13 @@ class DmsMirrorV3TestSuite(DmsMirrorV2TestSuite):
         _version = "1"
         _tgt_gav = f"{self.args.mvn_prefix}.{_component}:{_component}:{_version}:pkg"
 
-        #mock for v.3:
-        self.assertFalse(hasattr(self.dmsmirror._dms_client, "get_gav"))
-        self.assertTrue(hasattr(self.dmsmirror._dms_client, "download_component"))
         self.dmsmirror._dms_client.download_component = unittest.mock.MagicMock(return_value="OK")
         self.dmsmirror._dms_client.download_component.__name__ = 'download_component'
-        self.dmsmirror._mvn_client.cat = unittest.mock.MagicMock(return_value="OK")
         self.dmsmirror._mvn_client.upload = unittest.mock.MagicMock(return_value="OK")
 
         self.dmsmirror._copy_artifact(_component, _version, _artifact, _tgt_gav)
         self.dmsmirror._dms_client.download_component.assert_called_once_with(
                 _component, _version, _artifact.get('id'), write_to=unittest.mock.ANY)
-        self.dmsmirror._mvn_client.cat.assert_not_called()
         self.dmsmirror._mvn_client.upload.assert_called_once_with(
                 _tgt_gav, repo=self.args.mvn_upload_repo, data=unittest.mock.ANY, pom=True)
         

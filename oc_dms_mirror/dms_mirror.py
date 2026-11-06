@@ -110,31 +110,12 @@ class DmsMirror:
 
     def _get_dms_client(self):
         """
-        Return DmsAPI instance basing on version specified
-        :return DmsAPI.DmsAPI:
+        Return DMS API v3 instance
+        :return DmsAPI.DmsAPIv3:
         """
-
-        if self._args.dms_api_version == 3:
-            return DmsAPI.DmsAPIv3(root=self._args.dms_url,
-                                   user=self._args.dms_user,
-                                   auth=self._args.dms_password)
-
-
-        if self._args.dms_crs_url:
-            os.environ["DMS_CRS_URL"] = self._args.dms_crs_url
-
-        if self._args.dms_token:
-            os.environ["DMS_TOKEN"] = self._args.dms_token
-
-        _dms_client = DmsAPI.DmsAPI(
-                root=self._args.dms_url,
-                user=self._args.dms_user,
-                auth=self._args.dms_password)
-
-        self.logger.debug(self.__log_msg(f"DMS_CRS_URL: [{_dms_client.crs_root}]"))
-        # do not log headers since token may be displayed there!
-
-        return _dms_client
+        return DmsAPI.DmsAPIv3(root=self._args.dms_url,
+                               user=self._args.dms_user,
+                               auth=self._args.dms_password)
 
     def _get_mvn_client(self):
         """
@@ -302,20 +283,16 @@ class DmsMirror:
         """
         self.__process_name = component
 
-        if not self._components[component].get('enabled', True):
-            self.logger.info(self.__log_msg(f"Skipping: [{component}]. Disabled in the configuration"))
+        if "test-component" in self._components[component].get('labels', []):
+            self.logger.info(self.__log_msg(f"Skipping: [{component}]. Component is a test component"))
             return None
 
         self.logger.info(self.__log_msg(f"Processing component {component} in separate thread"))
 
-        if any(list(map(lambda x: self._components[component].get(x), ["componentId", "artifactType"]))):
-            self.logger.warning(self.__log_msg(
-                "'componentId' and 'artifactType' parameters are deprecated and may be safely removed"))
-
         try:
             versions = self._make_dms_api_call_with_retries(self.dms_client.get_versions, component) or list()
-            self.logger.info(self.__log_msg(f"[{component}]: versions to process: [{len(versions)}]"))
-
+            # DMS returns the newest released versions first
+            versions = versions[:self._args.versions_limit]
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
@@ -371,38 +348,34 @@ class DmsMirror:
         """
         _result = {
                 "at": artifact["type"],
-                "n": artifact.get("name") or "", # not returned by v3
+                "n": artifact.get("name") or "",
                 "v": version,
-                "p": artifact.get("packaging") or "", # not returned by v3
-                "c": artifact.get("classifier") or "", # not returned by v3
+                "p": artifact.get("packaging") or "",
+                "c": artifact.get("classifier") or "",
                 "prefix": self._args.mvn_prefix}
 
-        # try to update missing components using DMS API v3 detailed call
-        if any(list(map(lambda _x: not _result.get(_x), ["n", "p"]))) and hasattr(self.dms_client, "get_artifact_info"):
-            self.logger.debug(self.__log_msg(
-                "Try to update missing components using DMS API v3 detailed call"))
-
-            # we have to raise an exception if "id" is not present - it is a crime!
-            _info = self._make_dms_api_call_with_retries(self.dms_client.get_artifact_info, component, version, artifact["id"])
-            _result.update({
-                "n": _result.get("n") or _info.get("gav", dict()).get("artifactId") or "",
-                "p": _result.get("p") or _info.get("gav", dict()).get("packaging") or "",
-                "c": _result.get("c") or _info.get("gav", dict()).get("classifier") or ""})
+        # the artifact list doesn't return name, packaging and classifier, the detailed call does
+        # we have to raise an exception if "id" is not present - it is a crime!
+        _info = self._make_dms_api_call_with_retries(self.dms_client.get_artifact_info, component, version, artifact["id"])
+        _result.update({
+            "n": _result.get("n") or _info.get("gav", dict()).get("artifactId") or "",
+            "p": _result.get("p") or _info.get("gav", dict()).get("packaging") or "",
+            "c": _result.get("c") or _info.get("gav", dict()).get("classifier") or ""})
 
         if any(list(map(lambda _x: not _result.get(_x), ["n", "p"]))):
             self.logger.debug(self.__log_msg(
-                f"Using DMS API v[{self._args.dms_api_version}], parsing filename [{artifact['fileName']}]."))
+                f"No GAV in artifact info, parsing filename [{artifact['fileName']}]."))
             _fn, _p = posixpath.splitext(artifact['fileName'])
             _p = _p.strip('.') or 'bin'
             _n = list(_fn.split(version))
             _c = ""
 
             if len(_n) > 1:
-                _c = re.sub("^[\-_\.\s]+", "", _n.pop())
-                _c = re.sub("[\-_\.\s]+$", "", _c)
+                _c = re.sub(r"^[\-_\.\s]+", "", _n.pop())
+                _c = re.sub(r"[\-_\.\s]+$", "", _c)
 
-            _n = re.sub("^[\-_\.\s]+", "", _n.pop(0))
-            _n = re.sub("[\-_\.\s]+$", "", _n)
+            _n = re.sub(r"^[\-_\.\s]+", "", _n.pop(0))
+            _n = re.sub(r"[\-_\.\s]+$", "", _n)
             _result.update({
                 "n": _result.get("n") or _n,
                 "p": _result.get("p") or _p,
@@ -441,18 +414,18 @@ class DmsMirror:
             return
 
         self.logger.debug(self.__log_msg(f"Params: {_params}"))
-        _gav_template = _params.get("tgtGavTemplate")
+        _gav_template = (_params.get("tgtGavTemplate") or dict()).get(_artifact_type)
 
         if not _gav_template:
             self.logger.warning(self.__log_msg(
                 f"Component [{component}] has no GAV settings for artifact_type [{_artifact_type}], skipping"))
             return
 
-        _gav_template = _gav_template.get(_artifact_type).replace("\\", "")
+        _gav_template = _gav_template.replace("\\", "")
 
         self.logger.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
         _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
-        _tgt_gav = re.sub('[^\w\-\.\:_]+', "_", _tgt_gav)
+        _tgt_gav = re.sub(r'[^\w\-\.\:_]+', "_", _tgt_gav)
         self.logger.info(self.__log_msg(f"Target GAV: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
 
         if self.mvn_client.exists(_tgt_gav, repo=self._args.mvn_download_repo):
@@ -473,7 +446,7 @@ class DmsMirror:
         self._register_artifact(_tgt_gav, _ci_type)
 
     def get_component_config(self, component):
-        _params = self._components.get(component)
+        _params = self._components_config.get(component)
         if _params:
             return _params
 
@@ -552,18 +525,8 @@ class DmsMirror:
         """
 
         _tgt_file = tempfile.TemporaryFile(mode='w+b')
-        if hasattr(self.dms_client, "download_component"):
-            self.logger.info(self.__log_msg(f"Downloading component: [{component}:{version}:{artifact['type']}]"))
-            self._make_dms_api_call_with_retries(self.dms_client.download_component, component, version, artifact["id"], write_to=_tgt_file)
-        elif hasattr(self.dms_client, "get_gav"):
-            self.logger.debug(self.__log_msg(f"Getting GAV from DMS: [{component}:{version}:{artifact['type']}]"))
-            _src_gav = self._make_dms_api_call_with_retries(
-                    self.dms_client.get_gav, component, version,
-                    artifact["type"], artifact["name"], artifact["classifier"])
-            self.logger.info(self.__log_msg(f"Downloading source GAV: [{_src_gav}]"))
-            self.mvn_client.cat(_src_gav, repo=self._args.mvn_download_repo,
-                                stream=True, binary=True, write_to=_tgt_file)
-
+        self.logger.info(self.__log_msg(f"Downloading component: [{component}:{version}:{artifact['type']}]"))
+        self._make_dms_api_call_with_retries(self.dms_client.download_component, component, version, artifact["id"], write_to=_tgt_file)
         _tgt_file.seek(0, os.SEEK_SET)
         self.logger.info(self.__log_msg(
             f"Putting to [{self._args.mvn_upload_repo}]: [{component}:{version}:{artifact['type']}] ==> [{tgt_gav}]"))
@@ -628,6 +591,8 @@ class DmsMirror:
                             default=os.path.join(os.getcwd(), "config.json"))
         parser.add_argument("--gav-template-config-file", dest="gav_template_config_file", type=str, help="Path to gav template configuration file",
                             default=os.path.join(os.getcwd(), "gav_template_config.json"))
+        parser.add_argument("--versions-limit", dest="versions_limit", type=int,
+                            help="Number of newest released versions to process per component", default=3)
         parser.add_argument("--retries-count", dest="retries_count", type=int,
                             help='Retries count for DMS connection failures', default=5)
 
@@ -654,13 +619,6 @@ class DmsMirror:
                             help='Queue server url in form: amqp://user:pass@host:port/<vhost>[?params]',
                             default=vault_api.load_secret('AMQP__URL', 'amqp://guest:guest@localhost/'))
         # DMS arguments
-        parser.add_argument("--dms-api-version", dest="dms_api_version", type=int,
-                            help="DMS REST API version to use", default=3, choices=[2,3])
-        parser.add_argument("--dms-crs-url", dest="dms_crs_url", type=str,
-                            help="DMS Component Registry URL (necessary for DMS API v2)",
-                            default=vault_api.load_secret("DMS_CRS_URL"))
-        parser.add_argument("--dms-token", dest="dms_token", type=str, help="DMS authorization token",
-                            default=vault_api.load_secret("DMS__TOKEN"))
         parser.add_argument("--dms-url", dest="dms_url", help="DMS URL",
                             default=vault_api.load_secret("DMS__URL"))
         parser.add_argument("--dms-user", dest="dms_user", help="DMS user",
@@ -718,10 +676,25 @@ class DmsMirror:
 
             self.logger.info(self.__log_msg(f"{_k.upper()}:\t[{_display_value}]"))
 
+    def load_components(self):
+        """
+        Load the components to process from DMS, keyed by component ID
+        """
+        _components = self._make_dms_api_call_with_retries(self.dms_client.get_components) or list()
+        self._components = {_component["id"]: _component for _component in _components}
+
+    def warn_unknown_config_components(self):
+        """
+        Log config.json components that DMS doesn't return: archived, removed or a typo in the key
+        """
+        for _component in self._components_config:
+            if _component not in self._components:
+                self.logger.warning(self.__log_msg(
+                    f"Component [{_component}] is in config.json but not in DMS (archived, removed or a typo), skipping"))
 
     def load_config(self):
         with open(self._args.config_file, mode='rt') as _config:
-            self._components = json.load(_config)
+            self._components_config = json.load(_config)
 
         if os.path.exists(self._args.gav_template_config_file):
             with open(self._args.gav_template_config_file, mode='rt') as _config:
@@ -737,7 +710,9 @@ class DmsMirror:
         """
         self.logger.info(self.__log_msg(f"Reading components configuration: [{self._args.config_file}]"))
 
+        self.load_components()
         self.load_config()
+        self.warn_unknown_config_components()
 
         self.logger.info(self.__log_msg(f"Components to process: {len(self._components)}"))
 

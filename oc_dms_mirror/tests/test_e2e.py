@@ -104,6 +104,10 @@ class FakeDms:
     """DMS API v3 subset used by DmsMirror"""
     def __init__(self, components):
         self.components = components
+        self.missing_files = set()
+        # DMS answers 500 for these downloads and for the version lists of these components
+        self.failing_files = set()
+        self.failing_versions = set()
 
     def get_components(self):
         # archived components are not returned by DMS
@@ -112,6 +116,8 @@ class FakeDms:
     def get_versions(self, component):
         if component not in self.components:
             raise HttpAPIError(code=404, url=f"components/{component}/versions")
+        if component in self.failing_versions:
+            raise HttpAPIError(code=500, url=f"components/{component}/versions")
         return list(self.components[component]["versions"])
 
     def get_artifacts(self, component, version):
@@ -124,6 +130,15 @@ class FakeDms:
 
     def download_component(self, component, version, artifact_id, write_to):
         self._find(component, version, artifact_id)
+        if artifact_id in self.missing_files:
+            # listed in DMS, but the file was never published to its repositories
+            raise HttpAPIError(code=400, url=f"components/{component}/versions/{version}/artifacts/{artifact_id}/download",
+                               resp=SimpleNamespace(json=lambda: {
+                                   "code": "DMS-40006",
+                                   "message": f"Artifact [{artifact_id}] was not found in any of the repositories"}))
+        if artifact_id in self.failing_files:
+            raise HttpAPIError(code=500, url=f"components/{component}/versions/{version}/artifacts/{artifact_id}/download",
+                               resp=SimpleNamespace(json=lambda: {"message": "Internal Server Error"}))
         write_to.write(f"{component}:{version}:{artifact_id}".encode())
 
     def _find(self, component, version, artifact_id):
@@ -316,3 +331,46 @@ class DmsMirrorE2ETestSuite(unittest.TestCase):
         self.assertEqual(_errors, [])
         self.assertIn(LEGACY_DIST_GAV, self._uploaded())
         self.assertFalse([_gav for _gav in self._uploaded() if ":4.3.9:" in _gav])
+
+    def test_cron__missing_artifact_skipped(self):
+        # legacy-comp 4.3.10 notes are listed in DMS but their file is not in storage
+        self.dms.missing_files.add(4)
+        _errors, _warnings = self._run_cron()
+        self.assertEqual(_errors, [])
+        self.assertIn(LEGACY_DIST_GAV, self._uploaded())
+        self.assertNotIn(LEGACY_NOTES_GAV, self._uploaded())
+        self.assertIn((LEGACY_DIST_GAV, "LEGACYDSTR"), self.queue.enqueued)
+        self.assertNotIn(LEGACY_NOTES_GAV, [_gav for _gav, _ci_type in self.queue.enqueued])
+        self.assertEqual(len([_w for _w in _warnings if "Artifact not found in DMS storage, skipping" in _w
+                              and "[4] was not found in any of the repositories" in _w]), 1)
+
+    def test_webhook__missing_artifact_skipped(self):
+        self.dms.missing_files.add(4)
+        self.assertEqual(self._run_webhook("legacy-comp", "4.3.10"), (200, "Success"))
+        self.assertEqual(self.nexus.uploaded, [(LEGACY_DIST_GAV, UPLOAD_REPO, b"legacy-comp:4.3.10:3")])
+        self.assertEqual(self.queue.enqueued, [(LEGACY_DIST_GAV, "LEGACYDSTR")])
+
+    def test_cron__dms_server_error_on_download_skipped(self):
+        # DMS answers 500 for the legacy-comp 4.3.10 notes download
+        self.dms.failing_files.add(4)
+        _errors, _warnings = self._run_cron()
+        self.assertEqual(_errors, [])
+        self.assertIn(LEGACY_DIST_GAV, self._uploaded())
+        self.assertNotIn(LEGACY_NOTES_GAV, self._uploaded())
+        self.assertNotIn(LEGACY_NOTES_GAV, [_gav for _gav, _ci_type in self.queue.enqueued])
+        self.assertEqual(len([_w for _w in _warnings if "DMS failed to download [legacy-comp:notes:4.3.10] with [500]" in _w]), 1)
+
+    def test_cron__dms_server_error_on_versions_skipped(self):
+        # new-comp is registered, but DMS answers 500 for its version list
+        self.registry.citypedms["new-comp"] = {"dms_id": "new-comp", "ci_type_id": "new-comp"}
+        self.dms.failing_versions.add("new-comp")
+        _errors, _warnings = self._run_cron()
+        self.assertEqual(_errors, [])
+        self.assertNotIn(NEW_COMP_DIST_GAV, self._uploaded())
+        self.assertIn(LEGACY_DIST_GAV, self._uploaded())
+        self.assertEqual(len([_w for _w in _warnings if "DMS failed to list the versions of [new-comp] with [500]" in _w]), 1)
+
+    def test_webhook__dms_server_error_on_download_skipped(self):
+        self.dms.failing_files.add(4)
+        self.assertEqual(self._run_webhook("legacy-comp", "4.3.10"), (200, "Success"))
+        self.assertEqual(self.queue.enqueued, [(LEGACY_DIST_GAV, "LEGACYDSTR")])

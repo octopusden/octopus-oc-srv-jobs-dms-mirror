@@ -22,6 +22,9 @@ from oc_cdtapi.API import HttpAPIError
 from oc_logging import setup_json_logging
 from requests.exceptions import ConnectionError
 
+# not None: an empty answer from DMS is a valid result, a failed one is not
+DMS_UNAVAILABLE = object()
+
 class DmsMirror:
     """
     A class for artifacts mirroring from Dms API
@@ -290,9 +293,12 @@ class DmsMirror:
         self.logger.info(self.__log_msg(f"Processing component {component} in separate thread"))
 
         try:
-            versions = self._make_dms_api_call_with_retries(self.dms_client.get_versions, component) or list()
+            versions = self._make_dms_api_call_or_skip(f"the component [{component}]", self.dms_client.get_versions, component)
+            if versions is DMS_UNAVAILABLE:
+                return None
+
             # DMS returns the newest released versions first
-            versions = versions[:self._args.versions_limit]
+            versions = (versions or list())[:self._args.versions_limit]
             for version in versions:
                 self.process_version(version, component)
         except Exception as _e:
@@ -316,7 +322,12 @@ class DmsMirror:
         :param str version: component version
         :param str component: DmsComponentID
         """
-        artifacts = self._make_dms_api_call_with_retries(self.dms_client.get_artifacts, component, version) or list()
+        artifacts = self._make_dms_api_call_or_skip(
+            f"the version [{component}:{version}]", self.dms_client.get_artifacts, component, version)
+        if artifacts is DMS_UNAVAILABLE:
+            return
+
+        artifacts = artifacts or list()
         self.logger.info(self.__log_msg(f"[{component}:{version}]: artifacts to process: [{len(artifacts)}]"))
 
         for artifact in artifacts:
@@ -344,7 +355,7 @@ class DmsMirror:
         :param str component:
         :param str version:
         :param dict artifact: artifact params from DMS
-        :return dict:
+        :return dict: None when DMS failed to return the artifact info
         """
         _result = {
                 "at": artifact["type"],
@@ -356,7 +367,12 @@ class DmsMirror:
 
         # the artifact list doesn't return name, packaging and classifier, the detailed call does
         # we have to raise an exception if "id" is not present - it is a crime!
-        _info = self._make_dms_api_call_with_retries(self.dms_client.get_artifact_info, component, version, artifact["id"])
+        _info = self._make_dms_api_call_or_skip(
+            f"the artifact [{component}:{artifact['type']}:{version}]",
+            self.dms_client.get_artifact_info, component, version, artifact["id"])
+        if _info is DMS_UNAVAILABLE:
+            return None
+
         _result.update({
             "n": _result.get("n") or _info.get("gav", dict()).get("artifactId") or "",
             "p": _result.get("p") or _info.get("gav", dict()).get("packaging") or "",
@@ -424,7 +440,11 @@ class DmsMirror:
         _gav_template = _gav_template.replace("\\", "")
 
         self.logger.debug(self.__log_msg(f"GAV template for [{component}:{_artifact_type}:{version}]: [{_gav_template}]"))
-        _tgt_gav = Template(_gav_template).substitute(self._make_gav_substitute(component, version, artifact))
+        _substitutes = self._make_gav_substitute(component, version, artifact)
+        if _substitutes is None:
+            return
+
+        _tgt_gav = Template(_gav_template).substitute(_substitutes)
         _tgt_gav = re.sub(r'[^\w\-\.\:_]+', "_", _tgt_gav)
         self.logger.info(self.__log_msg(f"Target GAV: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
 
@@ -441,7 +461,9 @@ class DmsMirror:
         self.logger.debug(self.__log_msg(f"ci_type: [{component}:{_artifact_type}:{version}] ==> [{_ci_type}]"))
 
         self.logger.info(self.__log_msg(f"Copying: [{component}:{_artifact_type}:{version}] ==> [{_tgt_gav}]"))
-        self._copy_artifact(component, version, artifact, _tgt_gav)
+        if not self._copy_artifact(component, version, artifact, _tgt_gav):
+            return
+
         self.logger.info(self.__log_msg(f"Registering: [{_tgt_gav}] with ci_type [{_ci_type}]"))
         self._register_artifact(_tgt_gav, _ci_type)
 
@@ -470,9 +492,13 @@ class DmsMirror:
             self.logger.error(self.__log_msg(f"Invalid data for component [{component}] or citype [{citype_id}]"))
             return None
         self.logger.debug(self.__log_msg(f"Component [{component}] not registered in config, creating temporary one"))
-        components = self._make_dms_api_call_with_retries(self.dms_client.get_components) or list()
+        components = self._make_dms_api_call_or_skip(
+            f"the artifact, can't resolve the client of [{component}]", self.dms_client.get_components)
+        if components is DMS_UNAVAILABLE:
+            return None
+
         client_code = None
-        for comp in components:
+        for comp in components or list():
             if comp["id"] == component:
                 client_code = comp["clientCode"]
 
@@ -522,17 +548,71 @@ class DmsMirror:
         :param str version:
         :param dict artifact: artifact properties from DMS
         :param str tgt_gav: target GAV
+        :return bool: False when DMS couldn't deliver the artifact and it was skipped
         """
 
-        _tgt_file = tempfile.TemporaryFile(mode='w+b')
-        self.logger.info(self.__log_msg(f"Downloading component: [{component}:{version}:{artifact['type']}]"))
-        self._make_dms_api_call_with_retries(self.dms_client.download_component, component, version, artifact["id"], write_to=_tgt_file)
-        _tgt_file.seek(0, os.SEEK_SET)
-        self.logger.info(self.__log_msg(
-            f"Putting to [{self._args.mvn_upload_repo}]: [{component}:{version}:{artifact['type']}] ==> [{tgt_gav}]"))
-        self.mvn_client.upload(tgt_gav, repo=self._args.mvn_upload_repo, data=_tgt_file, pom=True)
-        _tgt_file.close()
+        with tempfile.TemporaryFile(mode='w+b') as _tgt_file:
+            self.logger.info(self.__log_msg(f"Downloading component: [{component}:{version}:{artifact['type']}]"))
+            try:
+                self._make_dms_api_call_with_retries(self.dms_client.download_component, component, version, artifact["id"], write_to=_tgt_file)
+            except HttpAPIError as _e:
+                _message = self._dms_error_body(_e).get('message') or repr(_e)
+
+                # listed in DMS, but its file is not in any repository: nothing to copy, the other artifacts go on
+                if self._is_artifact_missing(_e):
+                    self.logger.warning(self.__log_msg(
+                        f"Artifact not found in DMS storage, skipping: [{component}:{artifact['type']}:{version}] ==> [{tgt_gav}]: {_message}"))
+                    return False
+
+                if self._is_dms_unavailable(_e):
+                    self.logger.warning(self.__log_msg(
+                        f"DMS failed to download [{component}:{artifact['type']}:{version}] with [{_e.code}], skipping: {_message}"))
+                    return False
+
+                raise
+
+            _tgt_file.seek(0, os.SEEK_SET)
+            self.logger.info(self.__log_msg(
+                f"Putting to [{self._args.mvn_upload_repo}]: [{component}:{version}:{artifact['type']}] ==> [{tgt_gav}]"))
+            self.mvn_client.upload(tgt_gav, repo=self._args.mvn_upload_repo, data=_tgt_file, pom=True)
+
         self.logger.debug(self.__log_msg(f"Uploaded: [{component}:{version}:{artifact['type']}] ==> [{tgt_gav}]"))
+        return True
+
+    @staticmethod
+    def _dms_error_body(error):
+        """
+        Return the JSON body of a DMS error response, empty if there is none
+        :param HttpAPIError error:
+        :return dict:
+        """
+        try:
+            _body = error.resp.json()
+        except Exception:
+            return dict()
+
+        return _body if isinstance(_body, dict) else dict()
+
+    @staticmethod
+    def _is_dms_unavailable(error):
+        """
+        Whether DMS failed on its own side (5xx), retries already spent
+        :param HttpAPIError error:
+        :return bool:
+        """
+        return 500 <= error.code < 600
+
+    def _is_artifact_missing(self, error):
+        """
+        Whether DMS failed because the artifact's file is in none of its repositories.
+        The error body is not part of the documented API, so anything unrecognised counts as a real failure.
+        :param HttpAPIError error:
+        :return bool:
+        """
+        _body = self._dms_error_body(error)
+        return (error.code == 404
+                or _body.get("code") == "DMS-40006"
+                or str(_body.get("detail", "")).endswith("UnableToFindArtifactException"))
 
     def _make_dms_api_call_with_retries(self, method, *args, **kwargs):
         """
@@ -553,11 +633,32 @@ class DmsMirror:
             try:
                 return method(*args, **kwargs)
             except self.__errors as _err:
+                # a client error gives the same answer every time, except a timeout or a rate limit
+                if isinstance(_err, HttpAPIError) and 400 <= _err.code < 500 and _err.code not in (408, 429):
+                    raise
+
                 if _attempt >= self._args.retries_count:
                     raise
 
                 self.logger.debug(self.__log_msg(repr(_err)), exc_info=True)
                 time.sleep(30)
+
+    def _make_dms_api_call_or_skip(self, skipping, method, *args, **kwargs):
+        """
+        Make DMS API call with retries, return DMS_UNAVAILABLE and log what is skipped when DMS fails with 5xx
+        :param str skipping: what the caller skips, for the log
+        :param method: method reference
+        :return: result of the method call, or DMS_UNAVAILABLE
+        """
+        try:
+            return self._make_dms_api_call_with_retries(method, *args, **kwargs)
+        except HttpAPIError as _e:
+            if not self._is_dms_unavailable(_e):
+                raise
+
+            self.logger.warning(self.__log_msg(
+                f"DMS failed on [{getattr(method, '__name__', 'DMS call')}] with [{_e.code}], skipping {skipping}"))
+            return DMS_UNAVAILABLE
 
     class DmsEventType(Enum):
         PUBLISH_COMPONENT_VERSION = "PUBLISH_COMPONENT_VERSION"

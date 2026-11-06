@@ -7,7 +7,8 @@ import json
 import unittest
 import unittest.mock
 from unittest.mock import Mock, call
-from ..dms_mirror import DmsMirror
+import requests.exceptions
+from ..dms_mirror import DmsMirror, DMS_UNAVAILABLE
 from oc_cdtapi.DmsAPI import DmsAPIv3
 from oc_cdtapi.API import HttpAPIError
 from string import Template
@@ -252,7 +253,7 @@ class DmsMirrorTestSuite(DmsMirrorTestBase):
 
         # target artifacts does not exist
         self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock(return_value=False)
-        self.dmsmirror._copy_artifact = unittest.mock.MagicMock(return_value=None)
+        self.dmsmirror._copy_artifact = unittest.mock.MagicMock(return_value=True)
         self.dmsmirror._register_artifact = unittest.mock.MagicMock(return_value=None)
 
         self.dmsmirror._dms_client.get_artifact_info = unittest.mock.MagicMock(return_value=artifact_info)
@@ -332,6 +333,143 @@ class DmsMirrorTestSuite(DmsMirrorTestBase):
         self.dmsmirror._make_gav_substitute.assert_not_called()
         self.dmsmirror._copy_artifact.assert_not_called()
         self.dmsmirror._register_artifact.assert_not_called()
+
+    def _process_artifact_with_download_error(self, error):
+        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
+        self.args.retries_count = 2
+        self.dmsmirror._make_gav_substitute = unittest.mock.MagicMock(return_value={
+            "prefix": "com.example", "n": "n", "v": "1", "p": "zip", "c_colon": "", "cl": "", "c_hyphen": "", "at": "x"})
+        self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock(return_value=False)
+        self.dmsmirror._mvn_client.upload = unittest.mock.MagicMock()
+        self.dmsmirror._dms_client.download_component = unittest.mock.MagicMock(side_effect=error)
+        self.dmsmirror._dms_client.download_component.__name__ = "download_component"
+        self.dmsmirror._register_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        with unittest.mock.patch("oc_dms_mirror.dms_mirror.time.sleep"):
+            return self.dmsmirror.process_artifact({"type": _artifact_type, "id": 1}, _component, "1")
+
+    def test_process_artifact__missing_in_dms_storage(self):
+        _missing = Mock(json=Mock(return_value={
+            "code": "DMS-40006",
+            "detail": "org.octopusden.octopus.dms.exception.UnableToFindArtifactException",
+            "message": "Artifact 'com/example/distribution-1.tgz' was not found in any of the repositories"}))
+        self.assertIsNone(self._process_artifact_with_download_error(HttpAPIError(code=400, resp=_missing)))
+        self.dmsmirror._register_artifact.assert_not_called()
+        self.assertIn("was not found in any of the repositories", self.dmsmirror.logger.warning.call_args[0][0])
+
+        self.assertIsNone(self._process_artifact_with_download_error(HttpAPIError(code=404, resp=Mock(json=Mock(side_effect=ValueError)))))
+        self.dmsmirror._register_artifact.assert_not_called()
+
+        # matched by the exception class too, in case only the error code changes
+        _missing = Mock(json=Mock(return_value={
+            "code": "DMS-49999", "detail": "org.octopusden.octopus.dms.exception.UnableToFindArtifactException"}))
+        self.assertIsNone(self._process_artifact_with_download_error(HttpAPIError(code=400, resp=_missing)))
+        self.dmsmirror._register_artifact.assert_not_called()
+
+    def test_process_artifact__dms_server_error_on_download(self):
+        for _code in [500, 502, 503]:
+            self.assertIsNone(self._process_artifact_with_download_error(HttpAPIError(code=_code, resp=None)))
+            # retried before giving up, then skipped
+            self.assertEqual(self.dmsmirror._dms_client.download_component.call_count, 2)
+            self.dmsmirror._mvn_client.upload.assert_not_called()
+            self.dmsmirror._register_artifact.assert_not_called()
+            self.assertIn(f"DMS failed to download", self.dmsmirror.logger.warning.call_args[0][0])
+            self.assertIn(f"with [{_code}]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_process_artifact__other_download_error_fails(self):
+        for _error in [HttpAPIError(code=400, resp=Mock(json=Mock(return_value={"code": "DMS-40000"}))),
+                       HttpAPIError(code=401, resp=Mock(json=Mock(side_effect=ValueError)))]:
+            with self.assertRaises(HttpAPIError):
+                self._process_artifact_with_download_error(_error)
+
+            self.dmsmirror._register_artifact.assert_not_called()
+
+    def test_process_artifact__nexus_error_still_fails(self):
+        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
+        self.dmsmirror._make_gav_substitute = unittest.mock.MagicMock(return_value={
+            "prefix": "com.example", "n": "n", "v": "1", "p": "zip", "c_colon": "", "cl": "", "c_hyphen": "", "at": "x"})
+        self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock(return_value=False)
+        self.dmsmirror._mvn_client.upload = unittest.mock.MagicMock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror._dms_client.download_component = unittest.mock.MagicMock()
+        self.dmsmirror._dms_client.download_component.__name__ = "download_component"
+        self.dmsmirror._register_artifact = unittest.mock.MagicMock()
+        with self.assertRaises(HttpAPIError):
+            self.dmsmirror.process_artifact({"type": _artifact_type, "id": 1}, _component, "1")
+        self.dmsmirror._register_artifact.assert_not_called()
+
+    def test_process_artifact__dms_server_error_on_artifact_info(self):
+        _component, _ci_type, _artifact_type = self._get_artifact_test_case("$c_colon")
+        self.args.retries_count = 1
+        self.dmsmirror._dms_client.get_artifact_info = unittest.mock.MagicMock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror._dms_client.get_artifact_info.__name__ = "get_artifact_info"
+        self.dmsmirror._mvn_client.exists = unittest.mock.MagicMock()
+        self.dmsmirror._copy_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        self.assertIsNone(self.dmsmirror.process_artifact({"type": _artifact_type, "id": 1, "fileName": "a-1.zip"}, _component, "1"))
+        self.dmsmirror._mvn_client.exists.assert_not_called()
+        self.dmsmirror._copy_artifact.assert_not_called()
+        self.assertIn("DMS failed on [get_artifact_info] with [500]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_process_version__dms_server_error(self):
+        _component = list(self.dmsmirror._components.keys()).pop()
+        self.args.retries_count = 1
+        self.dmsmirror._dms_client.get_artifacts = unittest.mock.MagicMock(side_effect=HttpAPIError(code=503))
+        self.dmsmirror._dms_client.get_artifacts.__name__ = "get_artifacts"
+        self.dmsmirror.process_artifact = unittest.mock.MagicMock()
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        self.assertIsNone(self.dmsmirror.process_version("1", _component))
+        self.dmsmirror.process_artifact.assert_not_called()
+        self.assertIn("skipping the version", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_process_component__dms_server_error(self):
+        _component = list(self.dmsmirror._components.keys()).pop()
+        self.args.retries_count = 1
+        self.dmsmirror._dms_client.get_versions = unittest.mock.MagicMock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror._dms_client.get_versions.__name__ = "get_versions"
+        self.dmsmirror.process_version = unittest.mock.MagicMock()
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        # None, not an error string: the job doesn't fail
+        self.assertIsNone(self.dmsmirror.process_component(_component))
+        self.dmsmirror.process_version.assert_not_called()
+        self.assertIn("skipping the component", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_generate_component_config__dms_server_error(self):
+        self.args.retries_count = 1
+        self.dmsmirror._dms_client.get_components = unittest.mock.MagicMock(side_effect=HttpAPIError(code=500))
+        self.dmsmirror._dms_client.get_components.__name__ = "get_components"
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        self.assertIsNone(self.dmsmirror._generate_component_config({"dms_id": "new-comp", "ci_type_id": "new-comp"}))
+        self.assertIn("DMS failed on [get_components] with [500]", self.dmsmirror.logger.warning.call_args[0][0])
+
+    def test_dms_call_or_skip(self):
+        self.args.retries_count = 1
+        self.dmsmirror.logger = unittest.mock.MagicMock()
+        _method = Mock(return_value=[])
+        _method.__name__ = "get_versions"
+        self.assertEqual(self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x"), [])
+        _method.assert_called_once_with("x")
+
+        _method.side_effect = HttpAPIError(code=502)
+        self.assertIs(self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x"), DMS_UNAVAILABLE)
+        self.assertEqual(self.dmsmirror.logger.warning.call_args[0][0],
+                         "[?]: DMS failed on [get_versions] with [502], skipping the component [x]")
+
+        for _error in [HttpAPIError(code=401), requests.exceptions.ConnectionError("down")]:
+            _method.side_effect = _error
+            with self.assertRaises(type(_error)):
+                self.dmsmirror._make_dms_api_call_or_skip("the component [x]", _method, "x")
+
+    def test_dms_call__client_error_not_retried(self):
+        self.args.retries_count = 3
+        for _code, _calls in [(400, 1), (404, 1), (429, 3), (503, 3)]:
+            _method = Mock(side_effect=HttpAPIError(code=_code))
+            _method.__name__ = "download_component"
+            with unittest.mock.patch("oc_dms_mirror.dms_mirror.time.sleep") as _sleep:
+                with self.assertRaises(HttpAPIError):
+                    self.dmsmirror._make_dms_api_call_with_retries(_method)
+
+            self.assertEqual(_method.call_count, _calls, _code)
+            self.assertEqual(_sleep.call_count, _calls - 1, _code)
 
     def test_artifact_classifier_with_colon(self):
         # see config.json for appropriate test case

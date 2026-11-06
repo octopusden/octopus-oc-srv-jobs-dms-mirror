@@ -33,6 +33,22 @@ Other routes: `POST /get-gav` returns the GAV templates of a component, `GET /he
 3. An artifact type without a template is skipped.
 4. If the target GAV already exists in the download repository, the artifact is skipped (`--always-enqueue` still sends the registration message).
 5. Otherwise the artifact is downloaded from DMS, uploaded to the upload repository and registered.
+   If DMS lists the artifact but can't find its file in any of its repositories (HTTP 404, or `DMS-40006` / `UnableToFindArtifactException`), only that artifact is skipped with a warning; the rest of the component goes on and the job doesn't fail.
+   Client errors (4xx, except 408 and 429) are not retried.
+
+## When DMS fails
+A DMS error answered with 5xx is retried `--retries-count` times, 30 s apart. If it still fails, only the part that needed it is skipped with a warning, and the job doesn't fail:
+
+| DMS call | Skipped |
+|---|---|
+| download, artifact info | the artifact |
+| artifact list of a version | the version |
+| version list of a component | the component |
+| component list, while resolving the client of a component not in `config.json` | the artifact |
+
+The component list at the start of the batch job is the exception: without it there is nothing to process, so the job fails.
+Errors from MVN, the CI type registry or the message queue still fail the component as before.
+A skipped part is picked up by the next run once DMS answers again.
 
 The registration message goes to AMQP (`--msg-target amqp`, default) or to the PostgreSQL queue `cdt.dlartifacts.input` (`--msg-target db`).
 Its CI type is `--ci-type-documentation` for `documentation`, `--ci-type-release-notes` for `notes` and `report`, and the component's `ci_type` for anything else.
